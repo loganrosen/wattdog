@@ -1,0 +1,25 @@
+POWER MANAGER (dumpsys power)
+
+Power Manager State:
+  mDirty=0x0
+  mWakefulness=Asleep
+  mWakefulnessChanging=false
+  mIsPowered=false
+  mPlugType=0
+  mBatteryLevel=70
+  mLightDeviceIdleMode=true
+  mDeviceIdleMode=false
+  mHoldingWakeLockSuspendBlocker=true
+  mHoldingDisplaySuspendBlocker=false
+
+Wake Locks: size=3
+  PARTIAL_WAKE_LOCK              'AudioMix' ACQ=-4h50m0s0ms (uid=1041 pid=1200 ws=WorkSource{10250 com.example.podcast})
+  PARTIAL_WAKE_LOCK              'ExampleLongLock' ACQ=-1m2s3ms LONG (uid=10301 pid=4000 ws=WorkSource{ chains=WorkChain{(10301), (1041)}})
+  DOZE_WAKE_LOCK                 'dream:doze' ACQ=-38s399ms (uid=1000 pid=1921)
+
+Suspend Blockers: size=1
+  PowerManagerService.WakeLocks: ref count=1
+
+Battery saving stats:
+  mIsPowered=true
+  mBatteryLevel=12

@@ -1,0 +1,175 @@
+Battery History (0% used, 1KB used of 4096KB, 3 strings using 120B):
+                    0 (15) RESET:TIME: 2026-01-05-22-00-00
+  Wake lock u0a999 ShouldNotParse: 9h 0m 0s 0ms (1 times) realtime
+
+Per-PID Stats:
+  PID 1234 wake time: +1s0ms
+
+Statistics since last charge:
+  System starts: 0, currently on battery: true
+  Estimated battery capacity: 5000 mAh
+  Time on battery: 10h 0m 0s 0ms (95.0%) realtime, 6h 0m 0s 0ms (57.0%) uptime
+  Time on battery screen off: 8h 0m 0s 0ms (80.0%) realtime, 5h 0m 0s 0ms (50.0%) uptime
+  Time on battery screen doze: 1h 0m 0s 0ms (10.0%)
+  Total run time: 10h 30m 0s 0ms realtime, 6h 10m 0s 0ms uptime
+  Discharge: 1500 mAh
+  Screen off discharge: 900 mAh
+  Screen doze discharge: 120 mAh
+  Screen on discharge: 600 mAh
+  Device light doze discharge: 30 mAh
+  Device deep doze discharge: 200 mAh
+  Start clock time: 2026-01-05-22-00-00
+  Screen on: 2h 0m 0s 0ms (20.0%) 40x, Interactive: 1h 55m 0s 0ms (19.2%)
+  Screen brightnesses:
+    dark 2h 0m 0s 0ms (100.0%)
+  Device light idling: 1h 0m 0s 0ms (10.0%) 12x
+  Idle mode light time: 1h 0m 0s 0ms (10.0%) 12x -- longest 10m 0s 0ms 
+  Device full idling: 1h 0m 0s 0ms (10.0%) 4x
+  Idle mode full time: 1h 0m 0s 0ms (10.0%) 4x -- longest 30m 0s 0ms 
+  Connectivity changes: 12
+  Total full wakelock time: 5m 0s 0ms
+  Total partial wakelock time: 5h 10m 0s 0ms
+  Total WiFi Multicast wakelock Count: 2
+  Total WiFi Multicast wakelock time: 10m 0s 0ms
+
+  CONNECTIVITY POWER SUMMARY START
+  Logging duration for connectivity statistics: 10h 0m 0s 0ms 
+  Cellular Statistics:
+     Cellular kernel active time: 3h 0m 0s 0ms (30.0%)
+     Cellular Sleep time:  8h 0m 0s 0ms (80.0%)
+     Cellular Idle time:   1h 0m 0s 0ms (10.0%)
+     Cellular Rx time:     50m 0s 0ms (8.3%)
+     Cellular Tx time:     
+       less than 0dBm:  1m 0s 0ms (0.2%)
+       0dBm to 8dBm:  2m 0s 0ms (0.3%)
+       above 20dBm:  3m 0s 0ms (0.5%)
+     Cellular Battery drain: 250mAh
+     Active Cellular Radio Access Technology Breakdown:
+       LTE:
+         All frequencies:
+           Signal Strength Time:
+             poor:     4h 0m 0s 0ms (40.0%)
+           Rx Time: 40m 0s 0ms (6.7%)
+     Cellular data received: 10.00MB
+     Cellular data sent: 2.00MB
+     Cellular packets received: 9000
+     Cellular packets sent: 4000
+     Cellular Radio Access Technology:
+       oos 1h 0m 0s 0ms (10.0%) 
+       lte 6h 0m 0s 0ms (60.0%) 
+       nr 3h 0m 0s 0ms (30.0%) 
+     Cellular Rx signal strength (RSRP):
+       very poor (less than -128dBm):  3h 0m 0s 0ms (30.0%) 
+       poor (-128dBm to -118dBm):  2h 0m 0s 0ms (20.0%) 
+       moderate (-118dBm to -108dBm):  2h 0m 0s 0ms (20.0%) 
+       good (-108dBm to -98dBm):  2h 0m 0s 0ms (20.0%) 
+       great (greater than -98dBm):  1h 0m 0s 0ms (10.0%) 
+  Wifi Statistics:
+     Wifi kernel active time: 1h 0m 0s 0ms (10.0%)
+     WiFi Scan time:  20m 0s 0ms (3.3%)
+     WiFi Sleep time:  -1h -0m -0s -0ms (-10.0%)
+     WiFi Rx time:     5m 0s 0ms (0.8%)
+     WiFi Tx time:     2m 0s 0ms (0.3%)
+     WiFi Battery drain: 80mAh
+     Wifi data received: 500.00MB
+     Wifi data sent: 50.00MB
+     Wifi states:
+       sta 4h 0m 0s 0ms (40.0%) 
+  GPS Statistics:
+     GPS signal quality (Top 4 Average CN0):
+      poor (less than 20 dBHz): 1m 0s 0ms (0.2%) 
+     GPS Battery Drain: 5.00mAh
+  CONNECTIVITY POWER SUMMARY END
+
+  Bluetooth total received: 0B, sent: 0B
+  Bluetooth scan time: 2h 0m 0s 0ms 
+     Bluetooth Idle time:   1h 0m 0s 0ms (10.0%)
+
+  Device battery use since last full charge
+    Amount discharged (lower bound): 30
+    Amount discharged (upper bound): 31
+    Amount discharged while screen on: 12
+    Amount discharged while screen off: 18
+    Amount discharged while screen doze: 3
+
+  Estimated power use (mAh):
+    Capacity: 5000, Computed drain: 1480, actual drain: 1500
+    Global
+    screen: 150 apps: 150
+    cpu: 500 apps: 480 duration: 5h 0m 0s 0ms 
+    audio: 2.00 apps: 2.00 duration: 5m 0s 0ms 
+    mobile_radio: 260 apps: 40.0
+    wifi: 80.0 apps: 30.0
+    wakelock: 60.0 apps: 60.0 duration: 5h 0m 0s 0ms 
+    ambient_display: 40.0 apps: 0
+      (on battery, screen on)
+      screen: 150 apps: 150
+      cpu: 150 apps: 140 duration: 1h 0m 0s 0ms 
+      mobile_radio: 40.0 apps: 20.0
+      (on battery, screen off/doze)
+      cpu: 350 apps: 340 duration: 4h 0m 0s 0ms 
+      mobile_radio: 220 apps: 20.0
+      ambient_display: 40.0 apps: 0
+      (not on battery, screen on)
+      screen: 1.00 apps: 1.00
+  UID u0a250: 320 fg: 10.0 (5m 0s 0ms) bg: 300 (8h 0m 0s 0ms) fgs: 10.0 (1h 0m 0s 0ms)
+      cpu=250 cpu:bg=240 wakelock=55.0 (5h 0m 0s 0ms) wakelock:bg=55.0 (5h 0m 0s 0ms) mobile_radio=15.0
+      (on battery, screen off/doze) cpu=200 cpu:bg=200 wakelock=50.0 (4h 30m 0s 0ms)
+  UID 1000: 120 bg: 120
+      cpu=110 cpu:bg=110 mobile_radio=1.00
+  UID u0a300: 90.0 fg: 80.0 (2h 0m 0s 0ms) cached: 10.0 (6h 0m 0s 0ms)
+      screen=60.0 cpu=25.0 cpu:fg=20.0 mobile_radio=5.00
+  UID u0a301: 40.0 bg: 40.0 (1h 0m 0s 0ms)
+      cpu=30.0 wakelock=5.00 (40m 0s 0ms)
+
+  Resource Power Manager Stats
+    Misc Resource Power Manager Stats
+
+  All kernel wake locks:
+  Kernel Wake lock PowerManagerService.WakeLocks: 5h 0m 0s 0ms (20 times) realtime
+  Kernel Wake lock modem_wake: 30m 0s 0ms (900 times) realtime
+
+  All partial wake locks:
+  Wake lock u0a250 AudioMix: 4h 50m 0s 0ms (2 times) max=17400000 actual=17400000 (running for 17400000ms) realtime
+  Wake lock u0a301 ExampleLongLock: 55m 0s 0ms (3 times) max=2400000 actual=3300000 realtime
+  Wake lock u0a301 *job*/com.example.sync/.SyncJobService: 25m 0s 0ms (240 times) max=60000 actual=1500000 realtime
+  Wake lock 1000 *alarm*: 30s 0ms (100 times) max=500 actual=30000 realtime
+
+  All wakeup reasons:
+  Wakeup reason Abort: Pending Wakeup Sources: modem_wake: 2m 0s 0ms (40 times) realtime
+  Wakeup reason 123 rtc_alarm: 1m 0s 0ms (200 times) realtime
+
+  CPU freqs: 300000 600000 1200000
+  1000:
+    Wake lock *alarm*: 30s 0ms partial (100 times) max=500 actual=30000 realtime
+    Job android/com.android.server.ExampleJob: -2s -308ms realtime (0 times), -2s -308ms background (0 times)
+    Apk android:
+      Service com.android.server.Example:
+        Created for: 0ms uptime
+  u0a250:
+    Mobile network: 4.00MB received, 1.00MB sent (packets 4000 received, 1000 sent)
+    Mobile radio active: 5m 0s 0ms (0.8%) 20x @ 30.0 mspp
+       Cellular Rx time:     4m 0s 0ms (0.7%)
+    Wi-Fi network: 100.00MB received, 2.00MB sent (packets 70000 received, 2000 sent)
+    Wake lock AudioMix: 4h 50m 0s 0ms partial (2 times) max=17400000 actual=17400000 realtime
+    Apk com.example.podcast:
+      Service com.example.podcast.PlaybackService:
+        Created for: 8h 0m 0s 0ms uptime
+  u0a301:
+    Mobile network: 1.50MB received, 512.00KB sent (packets 1500 received, 512 sent)
+    Mobile radio active: 20m 0s 0ms (3.3%) 150x @ 10.0 mspp
+    Bluetooth Scan (total blamed realtime): 1h 0m 0s 0ms  (5 times)
+    Bluetooth Scan (total actual realtime): 1h 0m 0s 0ms  (5 times)
+    Bluetooth Scan (background realtime): 50m 0s 0ms  (5 times)
+    Job com.example.sync/.SyncJobService: 25m 0s 0ms realtime (240 times), 24m 0s 0ms background (230 times)
+    Job #UploadWorker#@androidx.work.systemjobscheduler@com.example.sync/androidx.work.impl.background.systemjob.SystemJobService: 10m 0s 0ms realtime (60 times), 10m 0s 0ms background (60 times)
+    Apk com.example.sync:
+      Wakeup alarm *walarm*:com.example.sync.POLL: 200 times
+      Wakeup alarm *walarm*:com.example.sync.NEVER: 0 times
+      Service com.example.sync.SyncService:
+        Created for: 1h 0m 0s 0ms uptime
+  u10a5:
+    Wi-Fi network: 1.00KB received, 1.00KB sent (packets 1 received, 1 sent)
+
+Daily stats:
+  Wake lock u0a998 AlsoShouldNotParse: 9h 0m 0s 0ms (1 times) realtime
