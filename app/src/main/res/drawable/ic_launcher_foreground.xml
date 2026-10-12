@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Battery with a bolt, inside the 72dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M48,30h12v4h6a2,2 0,0 1,2 2v40a2,2 0,0 1,-2 2H42a2,2 0,0 1,-2 -2V36a2,2 0,0 1,2 -2h6z" />
+    <path
+        android:fillColor="#FF1B5E20"
+        android:pathData="M56,40L46,57h7l-3,13 10,-18h-7z" />
+</vector>
