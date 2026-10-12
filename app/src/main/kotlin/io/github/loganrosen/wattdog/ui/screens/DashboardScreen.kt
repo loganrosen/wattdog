@@ -2,16 +2,23 @@ package io.github.loganrosen.wattdog.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -23,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
+import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
@@ -34,10 +42,13 @@ import io.github.loganrosen.wattdog.ui.components.BarRow
 import io.github.loganrosen.wattdog.ui.components.EmptyNote
 import io.github.loganrosen.wattdog.ui.components.SectionCard
 import io.github.loganrosen.wattdog.ui.components.StatRow
+import io.github.loganrosen.wattdog.ui.isAvailable
+import io.github.loganrosen.wattdog.ui.label
+import io.github.loganrosen.wattdog.ui.opensSettings
 import io.github.loganrosen.wattdog.ui.theme.color
 
 @Composable
-fun DashboardScreen(analysis: Analysis) {
+fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
     val report = analysis.report
     val drain = remember(report) { DrainMetrics.from(report) }
     val doze = remember(report) { DozeSummary.from(report) }
@@ -48,7 +59,7 @@ fun DashboardScreen(analysis: Analysis) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (analysis.power?.isPowered == true) item { ChargingNote() }
-        item { AnomaliesCard(analysis) }
+        item { AnomaliesCard(analysis, onAction) }
         item { DrainCard(drain, analysis) }
         item { TopDrainersCard(analysis) }
         item { DozeCard(doze) }
@@ -70,7 +81,7 @@ private fun ChargingNote() {
 }
 
 @Composable
-private fun AnomaliesCard(analysis: Analysis) {
+private fun AnomaliesCard(analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
     SectionCard("Anomalies & rogue wakelocks") {
         if (analysis.anomalies.isEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -80,13 +91,19 @@ private fun AnomaliesCard(analysis: Analysis) {
         }
         analysis.anomalies.forEachIndexed { i, anomaly ->
             if (i > 0) HorizontalDivider()
-            AnomalyRow(anomaly, anomaly.uid?.let { analysis.label(it).label })
+            val actions = remember(anomaly, analysis) { anomaly.actions.filter { it.isAvailable(analysis) } }
+            AnomalyRow(anomaly, anomaly.uid?.let { analysis.label(it).label }, actions, onAction)
         }
     }
 }
 
 @Composable
-private fun AnomalyRow(anomaly: Anomaly, appLabel: String?) {
+private fun AnomalyRow(
+    anomaly: Anomaly,
+    appLabel: String?,
+    actions: List<SuggestedAction>,
+    onAction: (SuggestedAction) -> Unit,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Default.Warning, null, tint = anomaly.severity.color())
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -98,6 +115,39 @@ private fun AnomalyRow(anomaly: Anomaly, appLabel: String?) {
                 Text(appLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             }
             Text(anomaly.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                anomaly.advice,
+                Modifier.padding(top = 4.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (actions.isNotEmpty()) ActionButtons(actions, onAction)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ActionButtons(actions: List<SuggestedAction>, onAction: (SuggestedAction) -> Unit) {
+    FlowRow(
+        Modifier.padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        actions.forEachIndexed { i, action ->
+            val content: @Composable () -> Unit = {
+                if (action.opensSettings()) {
+                    Icon(
+                        Icons.Default.Settings,
+                        null,
+                        Modifier.padding(end = 6.dp).size(ButtonDefaults.IconSize),
+                    )
+                }
+                Text(action.label())
+            }
+            if (i == 0) {
+                FilledTonalButton(onClick = { onAction(action) }, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) { content() }
+            } else {
+                OutlinedButton(onClick = { onAction(action) }, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) { content() }
+            }
         }
     }
 }

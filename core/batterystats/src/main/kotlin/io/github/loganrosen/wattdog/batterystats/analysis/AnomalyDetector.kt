@@ -31,8 +31,11 @@ data class Anomaly(
     val severity: Severity,
     val title: String,
     val detail: String,
+    /** Plain-language next step. */
+    val advice: String,
+    val actions: List<SuggestedAction>,
     val uid: AppUid? = null,
-    /** True when `dumpsys power` shows the culprit is still active right now. */
+    /** True when `dumpsys power` shows the holder is still active right now. */
     val activeNow: Boolean = false,
 )
 
@@ -87,6 +90,17 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         detail = "${wl.tag} kept the CPU awake for ${wl.total.formatShort()}$held, but the device " +
                             "only played audio for ${audioPlayback.formatShort()}. An app likely left an audio " +
                             "stream or session open (paused player, VoIP, or a stuck notification sound).",
+                        advice = if (wl.uid.isApplication) {
+                            "Close whatever this app was playing, recording, or calling with. If the lock " +
+                                "stays held, force stop the app from App info."
+                        } else {
+                            "A system audio service holds this on behalf of another app. Close media, call, " +
+                                "and recording apps you used recently, then refresh."
+                        },
+                        actions = listOf(
+                            SuggestedAction.ShowWakelocks(wl.uid, wl.tag, WakelockKind.AUDIO),
+                            SuggestedAction.OpenAppInfo(wl.uid),
+                        ),
                         uid = wl.uid,
                         activeNow = wl.activeNow() || wl.isHeld,
                     ),
@@ -102,6 +116,16 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     title = "Long wakelock: ${wl.tag.take(60)}",
                     detail = "Held ${wl.total.formatShort()} across ${wl.count} acquisitions" +
                         (wl.runningFor?.let { ", currently held for ${it.formatShort()}" } ?: "") + ".",
+                    advice = if (wl.uid.isApplication) {
+                        "If you weren't using this app, set its battery usage to Restricted."
+                    } else {
+                        "A system component holds this. The tag usually names the feature (location, sync, " +
+                            "media); check the apps that use it."
+                    },
+                    actions = listOf(
+                        SuggestedAction.ShowWakelocks(wl.uid, wl.tag),
+                        SuggestedAction.OpenAppBatteryUsage(wl.uid),
+                    ),
                     uid = wl.uid,
                     activeNow = wl.activeNow() || wl.isHeld,
                 ),
@@ -120,6 +144,12 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         title = "Heavy background jobs",
                         detail = "$count job runs totalling ${total.formatShort()}" +
                             (top?.let { ". Longest: ${it.displayName} (${it.total.formatShort()}, ${it.count}x)" } ?: "") + ".",
+                        advice = "Backups, photo sync, and indexing can be legitimate. If this app shouldn't be " +
+                            "working in the background, restrict its battery usage.",
+                        actions = listOf(
+                            SuggestedAction.ShowApp(detail.uid),
+                            SuggestedAction.OpenAppBatteryUsage(detail.uid),
+                        ),
                         uid = detail.uid,
                     ),
                 )
@@ -138,6 +168,12 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                                 severity = Severity.WARNING,
                                 title = "Frequent wakeup alarm",
                                 detail = "${alarm.tag} fired ${alarm.count} times (%.1f/h).".format(perHour),
+                                advice = "Usually polling sync or reminders. Lower the app's sync frequency or " +
+                                    "restrict its battery usage if you don't need it that often.",
+                                actions = listOf(
+                                    SuggestedAction.ShowApp(detail.uid),
+                                    SuggestedAction.OpenAppBatteryUsage(detail.uid),
+                                ),
                                 uid = detail.uid,
                             ),
                         )
@@ -163,6 +199,13 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         "${formatBytes(radio.cellularBytes)}; ${formatMah(radio.cellularStandbyMah)} is not attributed to any app. " +
                         (radio.poorSignalRatio?.let { "Signal was poor ${formatPercent(it)} of the time. " } ?: "") +
                         (if (rat.isNotEmpty()) "RAT: $rat." else ""),
+                    advice = "This is the modem staying connected, not app data. Use Wi-Fi where you can. To " +
+                        "measure 5G's cost, take a snapshot, set Preferred network type to LTE for a day, and compare.",
+                    actions = listOf(
+                        SuggestedAction.OpenMobileNetworkSettings,
+                        SuggestedAction.TakeSnapshot("Before LTE test"),
+                        SuggestedAction.ShowRadios,
+                    ),
                 ),
             )
         }
@@ -176,6 +219,8 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     title = "CPU awake ${formatPercent(awake)} of screen-off time",
                     detail = "Awake ${metrics.screenOffAwake.formatShort()} out of ${metrics.screenOff.formatShort()} " +
                         "with the screen off. Partial wakelocks total ${report.totalPartialWakelock.formatShort()}.",
+                    advice = "Something kept the CPU running. Start with the longest app wakelocks.",
+                    actions = listOf(SuggestedAction.ShowWakelocks()),
                 ),
             )
         }
@@ -190,6 +235,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     detail = "%.1f%%/h (%.0f mAh/h) while the screen was off for %s.".format(
                         pctPerHour, metrics.screenOffMahPerHour ?: 0.0, metrics.screenOff.formatShort(),
                     ),
+                    advice = "Check the other findings first. If none explain it, compare wakelocks, radios, " +
+                        "and per-app drain.",
+                    actions = listOf(SuggestedAction.ShowWakelocks(), SuggestedAction.ShowRadios, SuggestedAction.ShowApps),
                 ),
             )
         }
@@ -205,6 +253,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     title = "Rarely reached deep Doze",
                     detail = "Deep idle for ${doze.deepIdle.formatShort()} of ${report.screenOff.realtime.formatShort()} screen-off. " +
                         "Motion, an active wakelock, or a foreground service may be keeping the device out of Doze.",
+                    advice = "Deep Doze needs the phone still, unplugged, and screen off. Take a snapshot and leave " +
+                        "it on a table overnight; if it still won't idle, look for wakelocks that are held.",
+                    actions = listOf(SuggestedAction.TakeSnapshot("Overnight"), SuggestedAction.ShowWakelocks()),
                 ),
             )
         }
@@ -218,6 +269,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     title = "Always-on display is a large share of standby",
                     detail = "${doze.screenDozeMah} mAh (${formatPercent(aodShare)} of screen-off drain) over " +
                         "${doze.screenDoze.formatShort()} of ambient display.",
+                    advice = "Take a snapshot, turn off \u201cAlways show time and info\u201d in lock screen " +
+                        "settings for a day, and compare.",
+                    actions = listOf(SuggestedAction.OpenLockScreenSettings, SuggestedAction.TakeSnapshot("Before AOD off")),
                 ),
             )
         }
@@ -231,7 +285,14 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     severity = Severity.INFO,
                     title = "Bluetooth scanning the whole time",
                     detail = "BLE scan ran ${radio.bluetoothScan.formatShort()} (${formatPercent(btRatio)} of time on battery)." +
-                        (scanner?.let { " Longest scanner: ${it.uid} (${it.bluetoothScanActual.formatShort()})." } ?: ""),
+                        (scanner?.let { " Top attributed scanner: ${it.uid} (${it.bluetoothScanActual.formatShort()})." } ?: ""),
+                    advice = "Usually wearables, trackers, car, or smart-home apps." +
+                        if (scanner != null) " If the app below doesn't need it, remove its Nearby devices permission in App info." else "",
+                    actions = listOfNotNull(
+                        scanner?.let { SuggestedAction.OpenAppInfo(it.uid) },
+                        scanner?.let { SuggestedAction.ShowApp(it.uid) },
+                        SuggestedAction.OpenBluetoothSettings,
+                    ),
                     uid = scanner?.uid,
                 ),
             )
@@ -245,6 +306,8 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     title = "Wi-Fi multicast lock held",
                     detail = "Multicast reception was enabled for ${report.wifiMulticastWakelock.formatShort()}, " +
                         "usually from casting, smart-home, or device discovery apps.",
+                    advice = "Stop casting or device-discovery apps you aren't using, then refresh to see if it clears.",
+                    actions = listOf(SuggestedAction.ShowApps),
                 ),
             )
         }

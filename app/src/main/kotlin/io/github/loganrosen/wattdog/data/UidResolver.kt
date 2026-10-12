@@ -12,6 +12,11 @@ data class AppLabel(
     val label: String,
     val packages: List<String>,
     val isSystem: Boolean,
+    /**
+     * Set only when the UID is a single package installed for this user, so a settings page for it
+     * means the same thing as the batterystats row. Shared, system, and other-user UIDs get null.
+     */
+    val settingsPackage: String? = null,
 ) {
     val primaryPackage: String? get() = packages.firstOrNull()
 }
@@ -47,7 +52,9 @@ class UidResolver(private val pm: PackageManager) {
             else -> "UID $uid"
         }
         val isSystem = infos.isNotEmpty() && infos.all { it.flags and ApplicationInfo.FLAG_SYSTEM != 0 }
-        return AppLabel(uid, userSuffix(uid, label), packages, isSystem)
+        val settingsPackage = infos.singleOrNull()?.packageName
+            ?.takeIf { uid.userId == myUserId && uid.isApplication && packages.size == 1 }
+        return AppLabel(uid, userSuffix(uid, label), packages, isSystem, settingsPackage)
     }
 
     private fun userSuffix(uid: AppUid, label: String) = if (uid.userId != 0) "$label (user ${uid.userId})" else label

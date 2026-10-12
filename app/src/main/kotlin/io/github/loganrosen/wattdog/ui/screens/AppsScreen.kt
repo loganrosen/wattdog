@@ -10,11 +10,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.formatBytes
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
+import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
 import io.github.loganrosen.wattdog.batterystats.model.UidDetail
 import io.github.loganrosen.wattdog.batterystats.model.UidPower
@@ -34,15 +37,25 @@ import io.github.loganrosen.wattdog.ui.components.EmptyNote
 import io.github.loganrosen.wattdog.ui.components.StatRow
 
 @Composable
-fun AppsScreen(analysis: Analysis) {
+fun AppsScreen(analysis: Analysis, focusUid: AppUid? = null) {
     val report = analysis.report
     val apps = remember(report) { report.uidPower.sortedByDescending { it.totalMah } }
     val wakelocksByUid = remember(report) { report.partialWakelocks.groupBy { it.uid } }
     var expanded by rememberSaveable { mutableStateOf<Int?>(null) }
     val max = apps.firstOrNull()?.totalMah ?: 0.0
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(focusUid, apps) {
+        val index = apps.indexOfFirst { it.uid == focusUid }
+        if (index >= 0) {
+            expanded = focusUid?.raw
+            listState.animateScrollToItem(index)
+        }
+    }
 
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

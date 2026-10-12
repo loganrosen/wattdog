@@ -7,6 +7,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 class AnomalyDetectorTest {
@@ -65,6 +67,33 @@ class AnomalyDetectorTest {
         assertFalse(anomalies.any { it.kind == AnomalyKind.AMBIENT_DISPLAY })
         assertFalse(anomalies.any { it.kind == AnomalyKind.BLUETOOTH_SCAN })
         assertFalse(anomalies.any { it.kind == AnomalyKind.WIFI_MULTICAST })
+    }
+
+    @Test
+    fun `every anomaly has advice and a primary action`() {
+        anomalies.forEach {
+            assertTrue(it.advice.isNotBlank(), "${it.kind} has no advice")
+            assertTrue(it.actions.isNotEmpty(), "${it.kind} has no actions")
+        }
+    }
+
+    @Test
+    fun `actions point at the offender`() {
+        val stuck = of(AnomalyKind.STUCK_AUDIO_WAKELOCK).single()
+        assertEquals(SuggestedAction.ShowWakelocks(AppUid(10250), "AudioMix", WakelockKind.AUDIO), stuck.actions.first())
+        assertTrue(SuggestedAction.OpenAppInfo(AppUid(10250)) in stuck.actions)
+
+        assertTrue(SuggestedAction.OpenAppBatteryUsage(AppUid(10301)) in of(AnomalyKind.HEAVY_JOBS).single().actions)
+        assertEquals(SuggestedAction.OpenMobileNetworkSettings, of(AnomalyKind.CELLULAR_STANDBY).single().actions.first())
+    }
+
+    @Test
+    fun `system-held audio wakelock advice does not blame an app`() {
+        val report = Fixtures.report.copy(
+            partialWakelocks = listOf(PartialWakelock(AppUid(1041), "AudioMix", 3.hours, 3)),
+        )
+        val stuck = AnomalyDetector().detect(report).single { it.kind == AnomalyKind.STUCK_AUDIO_WAKELOCK }
+        assertTrue("system audio service" in stuck.advice)
     }
 
     @Test

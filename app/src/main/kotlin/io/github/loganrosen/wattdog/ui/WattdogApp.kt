@@ -42,9 +42,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.data.Baseline
 import io.github.loganrosen.wattdog.data.SnapshotMeta
 import io.github.loganrosen.wattdog.privileged.AccessMode
@@ -70,8 +72,38 @@ fun WattdogApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val hasAccess = state.access.mode != AccessMode.NONE
     var tab by rememberSaveable { mutableStateOf(Tab.DASHBOARD) }
-    var showSnapshotDialog by remember { mutableStateOf(false) }
+    var snapshotDialogLabel by remember { mutableStateOf<String?>(null) }
+    var focus by remember { mutableStateOf<Focus?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    var launchError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(launchError) {
+        launchError?.let {
+            snackbar.showSnackbar(it)
+            launchError = null
+        }
+    }
+
+    fun onAction(action: SuggestedAction) {
+        when {
+            action is SuggestedAction.TakeSnapshot -> snapshotDialogLabel = action.label
+            action.opensSettings() -> {
+                val analysis = state.analysis ?: return
+                if (!context.launchFirst(action.settingsIntents(analysis))) {
+                    launchError = "Couldn't open ${action.label().lowercase()} on this device"
+                }
+            }
+            else -> action.toFocus()?.let {
+                focus = it
+                tab = when (it) {
+                    is Focus.Wakelocks -> Tab.WAKELOCKS
+                    is Focus.App, Focus.Apps -> Tab.APPS
+                    Focus.Radios -> Tab.RADIOS
+                }
+            }
+        }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -94,7 +126,7 @@ fun WattdogApp(viewModel: MainViewModel) {
                 },
                 actions = {
                     if (hasAccess) {
-                        IconButton(onClick = { showSnapshotDialog = true }) { Icon(Icons.Default.Add, "Take snapshot") }
+                        IconButton(onClick = { snapshotDialogLabel = "" }) { Icon(Icons.Default.Add, "Take snapshot") }
                         IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                             Icon(Icons.Default.Refresh, "Refresh")
                         }
@@ -108,7 +140,10 @@ fun WattdogApp(viewModel: MainViewModel) {
                     Tab.entries.forEach { t ->
                         NavigationBarItem(
                             selected = current == t,
-                            onClick = { tab = t },
+                            onClick = {
+                                tab = t
+                                focus = null
+                            },
                             icon = { Icon(t.icon, null) },
                             label = { Text(t.label) },
                         )
@@ -135,10 +170,10 @@ fun WattdogApp(viewModel: MainViewModel) {
                         Column {
                             error?.let { ErrorBanner(it) }
                             when (current) {
-                                Tab.DASHBOARD -> DashboardScreen(analysis)
-                                Tab.WAKELOCKS -> WakelocksScreen(analysis)
+                                Tab.DASHBOARD -> DashboardScreen(analysis, ::onAction)
+                                Tab.WAKELOCKS -> WakelocksScreen(analysis, focus as? Focus.Wakelocks)
                                 Tab.RADIOS -> RadiosScreen(analysis)
-                                Tab.APPS -> AppsScreen(analysis)
+                                Tab.APPS -> AppsScreen(analysis, (focus as? Focus.App)?.uid)
                                 Tab.SETUP -> Unit
                             }
                         }
@@ -148,11 +183,12 @@ fun WattdogApp(viewModel: MainViewModel) {
         }
     }
 
-    if (showSnapshotDialog) {
+    snapshotDialogLabel?.let { initial ->
         SnapshotDialog(
-            onDismiss = { showSnapshotDialog = false },
+            initialLabel = initial,
+            onDismiss = { snapshotDialogLabel = null },
             onConfirm = {
-                showSnapshotDialog = false
+                snapshotDialogLabel = null
                 viewModel.takeSnapshot(it)
             },
         )
@@ -214,9 +250,9 @@ private fun BaselinePicker(
 }
 
 @Composable
-private fun SnapshotDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+private fun SnapshotDialog(initialLabel: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     val default = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date()) }
-    var label by remember { mutableStateOf("") }
+    var label by remember { mutableStateOf(initialLabel) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Take snapshot") },

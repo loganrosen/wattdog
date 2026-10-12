@@ -1,5 +1,6 @@
 package io.github.loganrosen.wattdog.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,11 +10,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +30,7 @@ import io.github.loganrosen.wattdog.batterystats.model.KernelWakelock
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
 import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
 import io.github.loganrosen.wattdog.data.Analysis
+import io.github.loganrosen.wattdog.ui.Focus
 import io.github.loganrosen.wattdog.ui.components.Badge
 import io.github.loganrosen.wattdog.ui.components.BarRow
 import io.github.loganrosen.wattdog.ui.components.EmptyNote
@@ -38,10 +43,17 @@ private enum class WakelockView(val label: String) {
 }
 
 @Composable
-fun WakelocksScreen(analysis: Analysis) {
+fun WakelocksScreen(analysis: Analysis, focus: Focus.Wakelocks? = null) {
     var view by rememberSaveable { mutableStateOf(WakelockView.PARTIAL) }
     var kind by rememberSaveable { mutableStateOf<WakelockKind?>(null) }
     val report = analysis.report
+
+    LaunchedEffect(focus) {
+        if (focus != null) {
+            view = WakelockView.PARTIAL
+            kind = focus.kind
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -73,7 +85,7 @@ fun WakelocksScreen(analysis: Analysis) {
                 val items = remember(report, kind) {
                     report.partialWakelocks.filter { kind == null || it.kind == kind }.sortedByDescending { it.total }
                 }
-                PartialList(items, analysis)
+                PartialList(items, analysis, focus)
             }
             WakelockView.KERNEL -> KernelList(report.kernelWakelocks, "No kernel wakelocks recorded.")
             WakelockView.WAKEUP -> KernelList(report.wakeupReasons, "No wakeup reasons recorded.")
@@ -82,10 +94,17 @@ fun WakelocksScreen(analysis: Analysis) {
 }
 
 @Composable
-private fun PartialList(items: List<PartialWakelock>, analysis: Analysis) {
+private fun PartialList(items: List<PartialWakelock>, analysis: Analysis, focus: Focus.Wakelocks?) {
     val max = items.firstOrNull()?.total?.toDouble(DurationUnit.MILLISECONDS) ?: 0.0
+    fun PartialWakelock.focused() = focus?.tag != null && tag == focus.tag && (focus.uid == null || uid == focus.uid)
+    val listState = rememberLazyListState()
+    LaunchedEffect(focus, items) {
+        val index = items.indexOfFirst { it.focused() }
+        if (index >= 0) listState.animateScrollToItem(index)
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -93,6 +112,11 @@ private fun PartialList(items: List<PartialWakelock>, analysis: Analysis) {
         items(items, key = { "${it.uid.raw}/${it.tag}" }) { wl ->
             val heldFor = wl.runningFor
             BarRow(
+                modifier = if (wl.focused()) {
+                    Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp)).padding(8.dp)
+                } else {
+                    Modifier
+                },
                 title = wl.tag,
                 value = wl.total.formatShort(),
                 fraction = if (max > 0) (wl.total.toDouble(DurationUnit.MILLISECONDS) / max).toFloat() else 0f,
