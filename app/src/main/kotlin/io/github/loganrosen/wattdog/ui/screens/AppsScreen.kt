@@ -37,7 +37,7 @@ import io.github.loganrosen.wattdog.ui.components.EmptyNote
 import io.github.loganrosen.wattdog.ui.components.StatRow
 
 @Composable
-fun AppsScreen(analysis: Analysis, focusUid: AppUid? = null) {
+fun AppsScreen(analysis: Analysis, modifier: Modifier = Modifier, focusUid: AppUid? = null) {
     val report = analysis.report
     val apps = remember(report) { report.uidPower.sortedByDescending { it.totalMah } }
     val wakelocksByUid = remember(report) { report.partialWakelocks.groupBy { it.uid } }
@@ -54,7 +54,7 @@ fun AppsScreen(analysis: Analysis, focusUid: AppUid? = null) {
     }
 
     LazyColumn(
-        Modifier.fillMaxSize(),
+        modifier.fillMaxSize(),
         state = listState,
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -150,4 +150,3 @@ private fun Details(app: UidPower, detail: UidDetail?, wakelocks: List<PartialWa
 private fun Subhead(text: String) {
     Text(text, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall)
 }
-

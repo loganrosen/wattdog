@@ -29,8 +29,7 @@ class UidResolver(private val pm: PackageManager) {
     private val myUserId = Process.myUid() / AppUid.PER_USER_RANGE
     private val cache = ConcurrentHashMap<AppUid, AppLabel>()
 
-    fun resolve(uid: AppUid, dumpPackages: List<String> = emptyList()): AppLabel =
-        cache.getOrPut(uid) { lookup(uid, dumpPackages) }
+    fun resolve(uid: AppUid, dumpPackages: List<String> = emptyList()): AppLabel = cache.getOrPut(uid) { lookup(uid, dumpPackages) }
 
     fun clear() = cache.clear()
 

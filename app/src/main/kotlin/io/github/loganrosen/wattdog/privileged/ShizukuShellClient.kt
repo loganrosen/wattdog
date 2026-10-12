@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
 import io.github.loganrosen.wattdog.BuildConfig
+import java.io.IOException
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -12,8 +14,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import rikka.shizuku.Shizuku
-import java.io.IOException
-import kotlin.time.Duration.Companion.seconds
 
 /** Binds [WattdogShellService] through Shizuku and runs allowlisted dumps in it. */
 class ShizukuShellClient(context: Context) : DumpSource {

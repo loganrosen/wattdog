@@ -58,13 +58,7 @@ data class Discharge(
 )
 
 /** "Device battery use since last full charge" percent bounds. */
-data class DischargePercent(
-    val lowerBound: Int,
-    val upperBound: Int,
-    val screenOn: Int,
-    val screenOff: Int,
-    val screenDoze: Int,
-)
+data class DischargePercent(val lowerBound: Int, val upperBound: Int, val screenOn: Int, val screenOff: Int, val screenDoze: Int)
 
 data class DozeStats(
     val deepIdling: Duration = Duration.ZERO,
@@ -106,12 +100,7 @@ data class WifiStats(
 }
 
 /** One row of the Global power block, e.g. `mobile_radio: 307 apps: 249`. */
-data class PowerComponent(
-    val name: String,
-    val totalMah: Double,
-    val appsMah: Double?,
-    val duration: Duration? = null,
-) {
+data class PowerComponent(val name: String, val totalMah: Double, val appsMah: Double?, val duration: Duration? = null) {
     /** Power the model could not blame on any app, e.g. modem standby or Wi-Fi idle. */
     val unattributedMah: Double get() = appsMah?.let { (totalMah - it).coerceAtLeast(0.0) } ?: 0.0
 }

@@ -26,11 +26,11 @@ import kotlin.time.Duration
 import kotlin.time.DurationUnit
 
 @Composable
-fun RadiosScreen(analysis: Analysis) {
+fun RadiosScreen(analysis: Analysis, modifier: Modifier = Modifier) {
     val report = analysis.report
     val radio = remember(report) { RadioAttribution.from(report) }
     LazyColumn(
-        Modifier.fillMaxSize(),
+        modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {

@@ -8,10 +8,10 @@ import io.github.loganrosen.wattdog.privileged.DirectDumpSource
 import io.github.loganrosen.wattdog.privileged.PrivilegedAccess
 import io.github.loganrosen.wattdog.privileged.ShizukuManager
 import io.github.loganrosen.wattdog.privileged.ShizukuShellClient
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import java.io.File
 
 /** Manual DI; the graph is small enough that Hilt would cost more than it saves. */
 class AppContainer(context: Context) {

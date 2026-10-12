@@ -8,21 +8,21 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -30,9 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
-import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
+import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
 import io.github.loganrosen.wattdog.batterystats.analysis.formatPercent
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
@@ -48,13 +48,13 @@ import io.github.loganrosen.wattdog.ui.opensSettings
 import io.github.loganrosen.wattdog.ui.theme.color
 
 @Composable
-fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, modifier: Modifier = Modifier) {
     val report = analysis.report
     val drain = remember(report) { DrainMetrics.from(report) }
     val doze = remember(report) { DozeSummary.from(report) }
 
     LazyColumn(
-        Modifier.fillMaxSize(),
+        modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -98,12 +98,7 @@ private fun AnomaliesCard(analysis: Analysis, onAction: (SuggestedAction) -> Uni
 }
 
 @Composable
-private fun AnomalyRow(
-    anomaly: Anomaly,
-    appLabel: String?,
-    actions: List<SuggestedAction>,
-    onAction: (SuggestedAction) -> Unit,
-) {
+private fun AnomalyRow(anomaly: Anomaly, appLabel: String?, actions: List<SuggestedAction>, onAction: (SuggestedAction) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(Icons.Default.Warning, null, tint = anomaly.severity.color())
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -133,6 +128,7 @@ private fun ActionButtons(actions: List<SuggestedAction>, onAction: (SuggestedAc
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         actions.forEachIndexed { i, action ->
+            val padding = if (action.opensSettings()) ButtonDefaults.ButtonWithIconContentPadding else ButtonDefaults.ContentPadding
             val content: @Composable () -> Unit = {
                 if (action.opensSettings()) {
                     Icon(
@@ -144,9 +140,11 @@ private fun ActionButtons(actions: List<SuggestedAction>, onAction: (SuggestedAc
                 Text(action.label())
             }
             if (i == 0) {
-                FilledTonalButton(onClick = { onAction(action) }, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) { content() }
+                FilledTonalButton(onClick = {
+                    onAction(action)
+                }, contentPadding = padding) { content() }
             } else {
-                OutlinedButton(onClick = { onAction(action) }, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) { content() }
+                OutlinedButton(onClick = { onAction(action) }, contentPadding = padding) { content() }
             }
         }
     }

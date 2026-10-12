@@ -7,10 +7,9 @@ import java.io.IOException
 internal object Dumpsys {
     private const val BINARY = "/system/bin/dumpsys"
 
-    fun start(target: DumpTarget): Process =
-        ProcessBuilder(listOf(BINARY) + target.args)
-            .redirectErrorStream(true)
-            .start()
+    fun start(target: DumpTarget): Process = ProcessBuilder(listOf(BINARY) + target.args)
+        .redirectErrorStream(true)
+        .start()
 }
 
 /**

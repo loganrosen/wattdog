@@ -48,6 +48,7 @@ class BatteryRepository(
         val now = capture()
         val report = when (baseline) {
             Baseline.SinceCharge -> now.report
+
             is Baseline.Snapshot -> when (val d = ReportDelta.compute(snapshots.report(baseline.meta.id), now.report)) {
                 is DeltaResult.Ok -> d.delta
                 is DeltaResult.StatsReset -> throw StatsResetException(d.reason)

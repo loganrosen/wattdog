@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,7 +43,7 @@ private enum class WakelockView(val label: String) {
 }
 
 @Composable
-fun WakelocksScreen(analysis: Analysis, focus: Focus.Wakelocks? = null) {
+fun WakelocksScreen(analysis: Analysis, modifier: Modifier = Modifier, focus: Focus.Wakelocks? = null) {
     var view by rememberSaveable { mutableStateOf(WakelockView.PARTIAL) }
     var kind by rememberSaveable { mutableStateOf<WakelockKind?>(null) }
     val report = analysis.report
@@ -55,7 +55,7 @@ fun WakelocksScreen(analysis: Analysis, focus: Focus.Wakelocks? = null) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize()) {
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -87,7 +87,9 @@ fun WakelocksScreen(analysis: Analysis, focus: Focus.Wakelocks? = null) {
                 }
                 PartialList(items, analysis, focus)
             }
+
             WakelockView.KERNEL -> KernelList(report.kernelWakelocks, "No kernel wakelocks recorded.")
+
             WakelockView.WAKEUP -> KernelList(report.wakeupReasons, "No wakeup reasons recorded.")
         }
     }

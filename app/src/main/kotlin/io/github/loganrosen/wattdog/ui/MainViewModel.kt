@@ -109,9 +109,12 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun describe(e: Exception): String = when (e) {
         is StatsResetException -> "${e.message}. Pick a newer snapshot or view since charge."
+
         is DumpPermissionDeniedException ->
             "The system refused the dump. If you granted DUMP over adb, also grant PACKAGE_USAGE_STATS.\n${e.message}"
+
         is BatteryStatsParseException -> "Couldn't read batterystats output: ${e.message}"
+
         else -> e.message ?: e.toString()
     }
 }

@@ -112,7 +112,13 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
             add(
                 Anomaly(
                     kind = AnomalyKind.LONG_WAKELOCK,
-                    severity = if (wl.total >= 1.hours || (wl.runningFor ?: Duration.ZERO) >= 1.hours) Severity.CRITICAL else Severity.WARNING,
+                    severity = if (wl.total >= 1.hours ||
+                        (wl.runningFor ?: Duration.ZERO) >= 1.hours
+                    ) {
+                        Severity.CRITICAL
+                    } else {
+                        Severity.WARNING
+                    },
                     title = "Long wakelock: ${wl.tag.take(60)}",
                     detail = "Held ${wl.total.formatShort()} across ${wl.count} acquisitions" +
                         (wl.runningFor?.let { ", currently held for ${it.formatShort()}" } ?: "") + ".",
@@ -233,7 +239,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     severity = if (pctPerHour >= 2 * t.screenOffPercentPerHour) Severity.CRITICAL else Severity.WARNING,
                     title = "High screen-off drain",
                     detail = "%.1f%%/h (%.0f mAh/h) while the screen was off for %s.".format(
-                        pctPerHour, metrics.screenOffMahPerHour ?: 0.0, metrics.screenOff.formatShort(),
+                        pctPerHour,
+                        metrics.screenOffMahPerHour ?: 0.0,
+                        metrics.screenOff.formatShort(),
                     ),
                     advice = "Check the other findings first. If none explain it, compare wakelocks, radios, " +
                         "and per-app drain.",

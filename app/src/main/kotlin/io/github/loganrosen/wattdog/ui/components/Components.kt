@@ -82,8 +82,8 @@ fun BarRow(
 }
 
 @Composable
-fun Badge(text: String, color: Color) {
-    Surface(color = color.copy(alpha = 0.15f), contentColor = color, shape = MaterialTheme.shapes.small) {
+fun Badge(text: String, color: Color, modifier: Modifier = Modifier) {
+    Surface(modifier = modifier, color = color.copy(alpha = 0.15f), contentColor = color, shape = MaterialTheme.shapes.small) {
         Text(
             text,
             Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -94,6 +94,6 @@ fun Badge(text: String, color: Color) {
 }
 
 @Composable
-fun EmptyNote(text: String) {
-    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun EmptyNote(text: String, modifier: Modifier = Modifier) {
+    Text(text, modifier, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

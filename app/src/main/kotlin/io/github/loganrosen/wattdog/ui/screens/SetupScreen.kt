@@ -35,10 +35,10 @@ import kotlinx.coroutines.launch
 private const val SHIZUKU_URL = "https://shizuku.rikka.app/download/"
 
 @Composable
-fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShizuku: () -> Intent?) {
+fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShizuku: () -> Intent?, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -66,9 +66,11 @@ fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShiz
                 ShizukuStatus.NotInstalled -> Button(onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, SHIZUKU_URL.toUri()))
                 }) { Text("Get Shizuku") }
+
                 ShizukuStatus.NotRunning -> launchShizuku()?.let { intent ->
                     Button(onClick = { context.startActivity(intent) }) { Text("Open Shizuku") }
                 }
+
                 is ShizukuStatus.PermissionRequired ->
                     if (s.permanentlyDenied) {
                         launchShizuku()?.let { intent ->
@@ -77,6 +79,7 @@ fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShiz
                     } else {
                         Button(onClick = onRequestPermission) { Text("Grant access") }
                     }
+
                 ShizukuStatus.Unsupported, ShizukuStatus.Granted -> Unit
             }
         }
@@ -105,19 +108,21 @@ fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShiz
 private fun CommandBlock(text: String) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-        SelectionContainer {
-            Text(
-                text,
-                Modifier.fillMaxWidth().padding(12.dp),
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+            SelectionContainer {
+                Text(
+                    text,
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
+        OutlinedButton(onClick = {
+            scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("adb commands", text))) }
+        }) { Text("Copy") }
     }
-    OutlinedButton(onClick = {
-        scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("adb commands", text))) }
-    }) { Text("Copy") }
 }
 
 private fun shizukuLabel(status: ShizukuStatus) = when (status) {
@@ -130,13 +135,17 @@ private fun shizukuLabel(status: ShizukuStatus) = when (status) {
 
 private fun shizukuHelp(status: ShizukuStatus) = when (status) {
     ShizukuStatus.NotInstalled -> "Install Shizuku and start it with wireless debugging. No computer needed."
+
     ShizukuStatus.NotRunning -> "Shizuku is installed but its service isn't running. Start it from the Shizuku app."
+
     ShizukuStatus.Unsupported -> "This Shizuku version is too old. Update to v11 or newer."
+
     is ShizukuStatus.PermissionRequired ->
         if (status.permanentlyDenied) {
             "Wattdog was denied. Allow it under Authorized applications in Shizuku."
         } else {
             "Shizuku is running. Allow Wattdog to use it."
         }
+
     ShizukuStatus.Granted -> "Shizuku is ready."
 }

@@ -139,17 +139,44 @@ object BatteryStatsParser {
             currentUid = null
             when {
                 content == "CONNECTIVITY POWER SUMMARY START" -> section = Section.CONNECTIVITY
+
                 content == "CONNECTIVITY POWER SUMMARY END" -> section = Section.SUMMARY
-                content == "Cellular Statistics:" -> { section = Section.CELLULAR; cellSub = CellSub.NONE }
+
+                content == "Cellular Statistics:" -> {
+                    section = Section.CELLULAR
+                    cellSub = CellSub.NONE
+                }
+
                 content == "Wifi Statistics:" -> section = Section.WIFI
+
                 content == "GPS Statistics:" -> section = Section.GPS
-                content == "Estimated power use (mAh):" -> { section = Section.POWER; powerSub = PowerSub.GLOBAL_ALL }
+
+                content == "Estimated power use (mAh):" -> {
+                    section = Section.POWER
+                    powerSub = PowerSub.GLOBAL_ALL
+                }
+
                 content.startsWith("Device battery use since last full charge") -> section = Section.DISCHARGE_PCT
+
                 content.startsWith("UID ") && section == Section.POWER -> startUidPower(content)
-                content.startsWith("Kernel Wake lock ") -> { section = Section.IGNORED; parseKernel(content) }
-                content.startsWith("Wake lock ") -> { section = Section.IGNORED; parsePartial(content) }
-                content.startsWith("Wakeup reason ") -> { section = Section.IGNORED; parseWakeupReason(content) }
+
+                content.startsWith("Kernel Wake lock ") -> {
+                    section = Section.IGNORED
+                    parseKernel(content)
+                }
+
+                content.startsWith("Wake lock ") -> {
+                    section = Section.IGNORED
+                    parsePartial(content)
+                }
+
+                content.startsWith("Wakeup reason ") -> {
+                    section = Section.IGNORED
+                    parseWakeupReason(content)
+                }
+
                 uidDetailHeader.matches(content) -> startUidDetail(content.removeSuffix(":"))
+
                 else -> {
                     section = if (content.endsWith(":")) Section.IGNORED else Section.SUMMARY
                     parseSummary(content)
@@ -160,13 +187,19 @@ object BatteryStatsParser {
         private fun acceptChild(indent: Int, content: String) {
             when (section) {
                 Section.DISCHARGE_PCT -> parseDischargePercent(content)
+
                 Section.CELLULAR -> parseCellular(indent, content)
+
                 Section.WIFI -> if (indent <= 5) parseWifi(content)
+
                 Section.GPS -> if (content.startsWith("GPS Battery Drain:")) {
                     report = report.copy(gpsDrainMah = Units.mah(content.substringAfter(":")))
                 }
+
                 Section.POWER -> parsePowerChild(indent, content)
+
                 Section.UID_DETAIL -> parseUidDetail(indent, content)
+
                 Section.SUMMARY, Section.CONNECTIVITY, Section.IGNORED -> Unit
             }
         }
@@ -179,38 +212,57 @@ object BatteryStatsParser {
                     val onBattery = content.substringAfter("currently on battery: ", "").trim()
                     if (onBattery.isNotEmpty()) report = report.copy(currentlyOnBattery = onBattery.toBoolean())
                 }
+
                 "Estimated battery capacity" ->
                     report = report.copy(estimatedCapacityMah = value.removeSuffix("mAh").trim().toIntOrNull())
+
                 "Time on battery" -> parseAwake(value)?.let { report = report.copy(onBattery = it) }
+
                 "Time on battery screen off" -> parseAwake(value)?.let { report = report.copy(screenOff = it) }
+
                 "Time on battery screen doze" -> report = report.copy(screenDoze = durationBeforeParen(value))
+
                 "Discharge" -> discharge = discharge.copy(totalMah = mahInt(value))
+
                 "Screen off discharge" -> discharge = discharge.copy(screenOffMah = mahInt(value))
+
                 "Screen doze discharge" -> discharge = discharge.copy(screenDozeMah = mahInt(value))
+
                 "Screen on discharge" -> discharge = discharge.copy(screenOnMah = mahInt(value))
+
                 "Device light doze discharge" -> discharge = discharge.copy(lightDozeMah = mahInt(value))
+
                 "Device deep doze discharge" -> discharge = discharge.copy(deepDozeMah = mahInt(value))
+
                 "Start clock time" -> report = report.copy(startClockTime = value.trim())
+
                 "Screen on" -> report = report.copy(
                     screenOn = durationBeforeParen(value),
                     screenOnCount = timesX.find(value)?.groupValues?.get(1)?.toInt() ?: 0,
                 )
+
                 "Device full idling" -> doze = doze.copy(
                     deepIdling = durationBeforeParen(value),
                     deepIdlingCount = timesX.find(value)?.groupValues?.get(1)?.toInt() ?: 0,
                 )
+
                 "Device light idling" -> doze = doze.copy(
                     lightIdling = durationBeforeParen(value),
                     lightIdlingCount = timesX.find(value)?.groupValues?.get(1)?.toInt() ?: 0,
                 )
+
                 "Idle mode full time" -> {
                     val longest = value.substringAfter("-- longest ", "")
                     if (longest.isNotEmpty()) doze = doze.copy(longestDeepIdle = Units.duration(longest))
                 }
+
                 "Total full wakelock time" -> report = report.copy(totalFullWakelock = durationBeforeParen(value))
+
                 "Total partial wakelock time" -> report = report.copy(totalPartialWakelock = durationBeforeParen(value))
+
                 "Total WiFi Multicast wakelock time" ->
                     report = report.copy(wifiMulticastWakelock = durationBeforeParen(value))
+
                 "Bluetooth scan time" -> report = report.copy(bluetoothScan = durationBeforeParen(value))
             }
         }
@@ -224,12 +276,15 @@ object BatteryStatsParser {
             if (indent >= 7) {
                 when (cellSub) {
                     CellSub.TX -> cellular = cellular.copy(tx = cellular.tx + durationAfterLastColon(content))
+
                     CellSub.RAT -> ratRegex.find(content)?.let { m ->
                         rat[m.groupValues[1]] = Units.duration(m.groupValues[2]) ?: Duration.ZERO
                     }
+
                     CellSub.SIGNAL -> if (content.contains("):")) {
                         signal[content.substringBefore(" (").trim()] = durationAfterLastColon(content)
                     }
+
                     CellSub.NONE, CellSub.SKIP -> Unit
                 }
                 return
@@ -283,8 +338,11 @@ object BatteryStatsParser {
             }
             when {
                 content == "Global" -> powerSub = PowerSub.GLOBAL_ALL
-                content.startsWith("(") -> powerSub =
-                    if (content == "(on battery, screen off/doze)") PowerSub.GLOBAL_SCREEN_OFF else PowerSub.GLOBAL_OTHER
+
+                content.startsWith("(") ->
+                    powerSub =
+                        if (content == "(on battery, screen off/doze)") PowerSub.GLOBAL_SCREEN_OFF else PowerSub.GLOBAL_OTHER
+
                 else -> {
                     val m = powerComponent.matchEntire(content) ?: return
                     val component = PowerComponent(
@@ -361,19 +419,24 @@ object BatteryStatsParser {
                     b.mobileRx = Units.bytes(it.groupValues[1]) ?: 0
                     b.mobileTx = Units.bytes(it.groupValues[2]) ?: 0
                 }
+
                 content.startsWith("Wi-Fi network: ") -> network.find(content.removePrefix("Wi-Fi network: "))?.let {
                     b.wifiRx = Units.bytes(it.groupValues[1]) ?: 0
                     b.wifiTx = Units.bytes(it.groupValues[2]) ?: 0
                 }
+
                 content.startsWith("Mobile radio active: ") -> {
                     val value = content.removePrefix("Mobile radio active: ")
                     b.radioActive = durationBeforeParen(value)
                     b.radioActiveCount = timesX.find(value)?.groupValues?.get(1)?.toInt() ?: 0
                 }
+
                 content.startsWith("Bluetooth Scan (total actual realtime): ") ->
                     b.btActual = durationAfterFirstColon(content)
+
                 content.startsWith("Bluetooth Scan (background realtime): ") ->
                     b.btBackground = durationAfterFirstColon(content)
+
                 content.startsWith("Job ") -> jobRegex.find(content)?.let { m ->
                     b.jobs += JobStat(
                         name = m.groupValues[1],
@@ -383,11 +446,13 @@ object BatteryStatsParser {
                         backgroundCount = m.groupValues[5].toIntOrNull() ?: 0,
                     )
                 }
+
                 indent == 4 && content.startsWith("Apk ") && content.endsWith(":") -> {
                     val pkg = content.removePrefix("Apk ").removeSuffix(":")
                     b.currentApk = pkg
                     b.packages += pkg
                 }
+
                 content.startsWith("Wakeup alarm ") -> alarmRegex.find(content)?.let { m ->
                     val count = m.groupValues[2].toInt()
                     if (count > 0) b.alarms += AlarmStat(b.currentApk, m.groupValues[1], count)
@@ -427,14 +492,11 @@ object BatteryStatsParser {
             return AwakeTime(Units.duration(m.groupValues[1]) ?: return null, Units.duration(m.groupValues[2]) ?: return null)
         }
 
-        private fun durationBeforeParen(value: String): Duration =
-            Units.duration(value.substringBefore("(")) ?: Duration.ZERO
+        private fun durationBeforeParen(value: String): Duration = Units.duration(value.substringBefore("(")) ?: Duration.ZERO
 
-        private fun durationAfterLastColon(content: String): Duration =
-            durationBeforeParen(content.substringAfterLast(":"))
+        private fun durationAfterLastColon(content: String): Duration = durationBeforeParen(content.substringAfterLast(":"))
 
-        private fun durationAfterFirstColon(content: String): Duration =
-            durationBeforeParen(content.substringAfter("): "))
+        private fun durationAfterFirstColon(content: String): Duration = durationBeforeParen(content.substringAfter("): "))
 
         private fun mahInt(value: String): Int = value.removeSuffix("mAh").trim().toIntOrNull() ?: 0
     }

@@ -3,11 +3,11 @@ package io.github.loganrosen.wattdog.batterystats.analysis
 import io.github.loganrosen.wattdog.batterystats.Fixtures
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
+import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 

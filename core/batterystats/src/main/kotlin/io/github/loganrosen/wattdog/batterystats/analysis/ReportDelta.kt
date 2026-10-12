@@ -78,8 +78,7 @@ object ReportDelta {
     private fun Long.minusClamped(other: Long) = (this - other).coerceAtLeast(0)
     private fun Int.minusClamped(other: Int) = (this - other).coerceAtLeast(0)
 
-    private operator fun AwakeTime.minus(o: AwakeTime) =
-        AwakeTime(realtime.minusClamped(o.realtime), uptime.minusClamped(o.uptime))
+    private operator fun AwakeTime.minus(o: AwakeTime) = AwakeTime(realtime.minusClamped(o.realtime), uptime.minusClamped(o.uptime))
 
     private operator fun Discharge.minus(o: Discharge) = Discharge(
         totalMah = totalMah.minusClamped(o.totalMah),
@@ -197,7 +196,9 @@ object ReportDelta {
                 null
             } else {
                 JobStat(
-                    j.name, total, count,
+                    j.name,
+                    total,
+                    count,
                     j.background.minusClamped(b?.background ?: Duration.ZERO),
                     j.backgroundCount.minusClamped(b?.backgroundCount ?: 0),
                 )

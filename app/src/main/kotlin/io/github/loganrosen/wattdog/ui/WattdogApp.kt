@@ -68,7 +68,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WattdogApp(viewModel: MainViewModel) {
+fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val hasAccess = state.access.mode != AccessMode.NONE
     var tab by rememberSaveable { mutableStateOf(Tab.DASHBOARD) }
@@ -88,12 +88,14 @@ fun WattdogApp(viewModel: MainViewModel) {
     fun onAction(action: SuggestedAction) {
         when {
             action is SuggestedAction.TakeSnapshot -> snapshotDialogLabel = action.label
+
             action.opensSettings() -> {
                 val analysis = state.analysis ?: return
                 if (!context.launchFirst(action.settingsIntents(analysis))) {
                     launchError = "Couldn't open ${action.label().lowercase()} on this device"
                 }
             }
+
             else -> action.toFocus()?.let {
                 focus = it
                 tab = when (it) {
@@ -115,6 +117,7 @@ fun WattdogApp(viewModel: MainViewModel) {
     val current = if (hasAccess) tab else Tab.SETUP
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
@@ -164,16 +167,19 @@ fun WattdogApp(viewModel: MainViewModel) {
                         onRequestPermission = viewModel::requestShizukuPermission,
                         launchShizuku = viewModel::shizukuLaunchIntent,
                     )
+
                     error != null && analysis == null -> ErrorState(error, viewModel::refresh)
+
                     analysis == null -> Unit
+
                     else -> {
                         Column {
                             error?.let { ErrorBanner(it) }
                             when (current) {
                                 Tab.DASHBOARD -> DashboardScreen(analysis, ::onAction)
-                                Tab.WAKELOCKS -> WakelocksScreen(analysis, focus as? Focus.Wakelocks)
+                                Tab.WAKELOCKS -> WakelocksScreen(analysis, focus = focus as? Focus.Wakelocks)
                                 Tab.RADIOS -> RadiosScreen(analysis)
-                                Tab.APPS -> AppsScreen(analysis, (focus as? Focus.App)?.uid)
+                                Tab.APPS -> AppsScreen(analysis, focusUid = (focus as? Focus.App)?.uid)
                                 Tab.SETUP -> Unit
                             }
                         }

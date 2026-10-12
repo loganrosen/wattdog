@@ -2,6 +2,10 @@ package io.github.loganrosen.wattdog.data
 
 import io.github.loganrosen.wattdog.batterystats.model.BatteryStatsReport
 import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParser
+import java.io.File
+import java.util.UUID
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,10 +15,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.io.File
-import java.util.UUID
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 
 @Serializable
 data class SnapshotMeta(
@@ -67,11 +67,10 @@ class SnapshotStore(private val dir: File) {
         _snapshots.value = readAll()
     }
 
-    private fun readAll(): List<SnapshotMeta> =
-        dir.listFiles { f -> f.name.endsWith(META_SUFFIX) }.orEmpty()
-            .mapNotNull { runCatching { json.decodeFromString(SnapshotMeta.serializer(), it.readText()) }.getOrNull() }
-            .filter { dumpFile(it.id).exists() }
-            .sortedByDescending { it.capturedAtMillis }
+    private fun readAll(): List<SnapshotMeta> = dir.listFiles { f -> f.name.endsWith(META_SUFFIX) }.orEmpty()
+        .mapNotNull { runCatching { json.decodeFromString(SnapshotMeta.serializer(), it.readText()) }.getOrNull() }
+        .filter { dumpFile(it.id).exists() }
+        .sortedByDescending { it.capturedAtMillis }
 
     private fun dumpFile(id: String) = File(dir, "$id.batterystats.txt.gz")
     private fun metaFile(id: String) = File(dir, "$id$META_SUFFIX")

@@ -36,6 +36,7 @@ fun SuggestedAction.opensSettings(): Boolean = when (this) {
     SuggestedAction.OpenMobileNetworkSettings, SuggestedAction.OpenLockScreenSettings,
     SuggestedAction.OpenBluetoothSettings,
     -> true
+
     else -> false
 }
 
@@ -57,17 +58,22 @@ fun SuggestedAction.settingsIntents(analysis: Analysis): List<Intent> {
     fun appInfo(p: String) = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:$p".toUri())
     return when (this) {
         is SuggestedAction.OpenAppInfo -> listOfNotNull(pkg(uid)?.let(::appInfo))
+
         is SuggestedAction.OpenAppBatteryUsage -> pkg(uid)?.let {
             // Not a public constant, but exported by AOSP Settings and lands on the Unrestricted /
             // Optimized / Restricted page. App info is one tap further from the same place.
             listOf(Intent("android.settings.VIEW_ADVANCED_POWER_USAGE_DETAIL", "package:$it".toUri()), appInfo(it))
         }.orEmpty()
+
         SuggestedAction.OpenMobileNetworkSettings ->
             listOf(Intent(Settings.ACTION_NETWORK_OPERATOR_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
+
         // There's no public intent for the AOD toggle; on Pixel it lives in lock screen settings.
         SuggestedAction.OpenLockScreenSettings ->
             listOf(Intent("android.settings.LOCK_SCREEN_SETTINGS"), Intent(Settings.ACTION_DISPLAY_SETTINGS))
+
         SuggestedAction.OpenBluetoothSettings -> listOf(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+
         else -> emptyList()
     }
 }

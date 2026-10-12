@@ -137,5 +137,4 @@ internal fun rate(mah: Int, over: Duration): Double? {
     return if (hours > 0.0) mah / hours else null
 }
 
-internal fun ratio(part: Duration, whole: Duration): Double? =
-    if (whole.isPositive()) part / whole else null
+internal fun ratio(part: Duration, whole: Duration): Double? = if (whole.isPositive()) part / whole else null

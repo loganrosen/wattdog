@@ -3,9 +3,9 @@ package io.github.loganrosen.wattdog.privileged
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.IOException
 
 /**
  * Runs `dumpsys` as Wattdog itself after a one-time
@@ -16,8 +16,7 @@ import java.io.IOException
  */
 class DirectDumpSource(private val context: Context) : DumpSource {
 
-    fun isAvailable(): Boolean =
-        context.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
+    fun isAvailable(): Boolean = context.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
 
     override suspend fun dump(target: DumpTarget): String = withContext(Dispatchers.IO) {
         val process = Dumpsys.start(target)

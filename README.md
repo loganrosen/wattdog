@@ -51,7 +51,11 @@ Requires JDK 17+ and the Android SDK (compileSdk 37).
 ```sh
 ./gradlew :core:batterystats:test      # parser and analysis tests
 ./gradlew :app:assembleDebug
+./gradlew spotlessApply                # ktlint formatting, including Compose rules
+./gradlew :app:lintDebug
 ```
+
+CI runs all of these, plus a release (R8) build, on every push to `main` and on pull requests.
 
 Test fixtures under `core/batterystats/src/test/resources` are synthetic. Don't commit real dumps; `*.dumpsys.txt` and `dumps/` are gitignored for that reason.
 
