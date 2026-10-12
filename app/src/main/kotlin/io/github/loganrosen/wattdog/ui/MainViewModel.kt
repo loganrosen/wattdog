@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.loganrosen.wattdog.AppContainer
+import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
 import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParseException
 import io.github.loganrosen.wattdog.data.Analysis
 import io.github.loganrosen.wattdog.data.Baseline
@@ -31,11 +32,16 @@ data class UiState(
     val analysis: Analysis? = null,
     val error: String? = null,
     val message: String? = null,
+    val history: HistoryLoad = HistoryLoad(),
 )
+
+data class HistoryLoad(val loading: Boolean = false, val history: BatteryHistory? = null, val error: String? = null)
 
 class MainViewModel(private val container: AppContainer) : ViewModel() {
     private val load = MutableStateFlow(LoadState())
+    private val history = MutableStateFlow(HistoryLoad())
     private var loadJob: Job? = null
+    private var historyJob: Job? = null
 
     private data class LoadState(
         val baseline: Baseline = Baseline.SinceCharge,
@@ -45,8 +51,8 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         val message: String? = null,
     )
 
-    val state: StateFlow<UiState> = combine(container.access.state, container.snapshots.snapshots, load) { access, snaps, l ->
-        UiState(access, l.baseline, snaps, l.loading, l.analysis, l.error, l.message)
+    val state: StateFlow<UiState> = combine(container.access.state, container.snapshots.snapshots, load, history) { access, snaps, l, h ->
+        UiState(access, l.baseline, snaps, l.loading, l.analysis, l.error, l.message, h)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState(container.access.state.value))
 
     init {
@@ -66,10 +72,16 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun selectBaseline(baseline: Baseline) {
         load.update { it.copy(baseline = baseline) }
-        refresh()
+        // The timeline is re-windowed in the UI; only the stats need re-reading.
+        analyze()
     }
 
     fun refresh() {
+        analyze()
+        if (history.value.history != null) loadHistory(force = true)
+    }
+
+    private fun analyze() {
         if (container.access.state.value.mode == AccessMode.NONE) return
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
@@ -81,6 +93,25 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 load.update { it.copy(loading = false, error = describe(e)) }
+            }
+        }
+    }
+
+    /** Loads `--history` on first use; [force] re-reads it, e.g. on refresh. */
+    fun loadHistory(force: Boolean = false) {
+        if (container.access.state.value.mode == AccessMode.NONE) return
+        val current = history.value
+        if (!force && (current.loading || current.history != null)) return
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
+            history.update { it.copy(loading = true, error = null) }
+            try {
+                val h = container.repository.history()
+                history.update { HistoryLoad(history = h) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                history.update { it.copy(loading = false, error = describe(e)) }
             }
         }
     }

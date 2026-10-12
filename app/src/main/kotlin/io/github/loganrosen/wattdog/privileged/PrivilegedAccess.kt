@@ -1,5 +1,6 @@
 package io.github.loganrosen.wattdog.privileged
 
+import java.io.BufferedReader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,12 +41,12 @@ class PrivilegedAccess(
 
     fun shizukuLaunchIntent() = shizuku.launchIntent()
 
-    override suspend fun dump(target: DumpTarget): String {
+    override suspend fun <T> read(target: DumpTarget, block: (BufferedReader) -> T): T {
         // Read the live status rather than the cached combined state, which lags by a dispatch.
         val current = AccessState(shizuku.status.value, direct.isAvailable())
         return when (current.mode) {
-            AccessMode.SHIZUKU -> shizukuClient.dump(target)
-            AccessMode.DIRECT -> direct.dump(target)
+            AccessMode.SHIZUKU -> shizukuClient.read(target, block)
+            AccessMode.DIRECT -> direct.read(target, block)
             AccessMode.NONE -> throw NoPrivilegedAccessException()
         }
     }

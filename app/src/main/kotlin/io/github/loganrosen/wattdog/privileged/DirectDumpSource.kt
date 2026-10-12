@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.privileged
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import java.io.BufferedReader
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,11 +19,15 @@ class DirectDumpSource(private val context: Context) : DumpSource {
 
     fun isAvailable(): Boolean = context.checkSelfPermission(Manifest.permission.DUMP) == PackageManager.PERMISSION_GRANTED
 
-    override suspend fun dump(target: DumpTarget): String = withContext(Dispatchers.IO) {
+    override suspend fun <T> read(target: DumpTarget, block: (BufferedReader) -> T): T = withContext(Dispatchers.IO) {
         val process = Dumpsys.start(target)
-        val text = process.inputStream.bufferedReader().use { it.readText() }
-        val code = process.waitFor()
-        if (code != 0) throw IOException("dumpsys ${target.args.joinToString(" ")} exited with $code")
-        text.requireNotDenied(target)
+        try {
+            val result = process.inputStream.bufferedReader().use { it.consume(target, block) }
+            val code = process.waitFor()
+            if (code != 0) throw IOException("dumpsys ${target.args.joinToString(" ")} exited with $code")
+            result
+        } finally {
+            process.destroy()
+        }
     }
 }

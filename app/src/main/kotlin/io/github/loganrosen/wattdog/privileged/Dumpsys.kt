@@ -1,6 +1,7 @@
 package io.github.loganrosen.wattdog.privileged
 
 import android.os.ParcelFileDescriptor
+import java.io.BufferedReader
 import java.io.FileInputStream
 import java.io.IOException
 
@@ -13,11 +14,11 @@ internal object Dumpsys {
 }
 
 /**
- * Reads a pipe produced by [WattdogShellService] to EOF. The writer uses a reliable pipe, so a
- * failure on the shell side surfaces here as an [IOException] from `checkError`.
+ * Reads a pipe produced by [WattdogShellService]. The writer uses a reliable pipe, so a failure on
+ * the shell side surfaces here as an [IOException] from `checkError` once [block] reaches EOF.
  */
-internal fun ParcelFileDescriptor.readTextAndClose(): String = use { pfd ->
-    val text = FileInputStream(pfd.fileDescriptor).bufferedReader().readText()
+internal fun <T> ParcelFileDescriptor.readAndClose(block: (BufferedReader) -> T): T = use { pfd ->
+    val result = block(FileInputStream(pfd.fileDescriptor).bufferedReader())
     pfd.checkError()
-    text
+    result
 }

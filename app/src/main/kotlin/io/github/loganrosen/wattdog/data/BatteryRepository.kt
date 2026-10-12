@@ -5,9 +5,11 @@ import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyDetector
 import io.github.loganrosen.wattdog.batterystats.analysis.DeltaResult
 import io.github.loganrosen.wattdog.batterystats.analysis.ReportDelta
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
+import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
 import io.github.loganrosen.wattdog.batterystats.model.BatteryStatsReport
 import io.github.loganrosen.wattdog.batterystats.model.PowerState
 import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParser
+import io.github.loganrosen.wattdog.batterystats.parse.HistoryParser
 import io.github.loganrosen.wattdog.batterystats.parse.PowerDumpParser
 import io.github.loganrosen.wattdog.privileged.DumpSource
 import io.github.loganrosen.wattdog.privileged.DumpTarget
@@ -66,6 +68,9 @@ class BatteryRepository(
             Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), labels, resolver)
         }
     }
+
+    /** Streams `--history`; it can be tens of megabytes, so it's fetched only when the History tab asks. */
+    suspend fun history(): BatteryHistory = source.read(DumpTarget.BATTERYSTATS_HISTORY) { HistoryParser.parse(it.lineSequence()) }
 
     suspend fun takeSnapshot(label: String): SnapshotMeta {
         val now = capture()

@@ -7,6 +7,7 @@ Think of it as a modern BetterBatteryStats for Android 14+.
 ## What it shows
 
 - **Dashboard**: discharge since unplugged (or since a snapshot), screen-on vs screen-off mAh/h, how long the CPU stayed awake with the screen off, top apps and power components, Doze and AOD, plus an anomalies card. Problems still active right now (from `dumpsys power`) get an "active now" badge.
+- **History**: a timeline from `dumpsys batterystats --history` with the battery level, charging, and lanes for screen, AOD, awake, wakelocks, Doze, cellular and Wi-Fi radio, signal, GPS, BLE scans, and media. Drag across it to see what was running at any moment. Below that: drain rates and the foreground apps, wakelocks, and jobs from the history for the same window.
 - **Wakelocks**: app partial wakelocks (filterable by audio/jobs/sync/alarms/location, held locks marked), kernel wakelocks, and wakeup reasons.
 - **Radios**: cellular drain split into app traffic vs standby, cost per MB, signal-strength and network-type breakdowns, which apps keep the modem awake, plus Wi-Fi, Bluetooth scanning, and GPS.
 - **Apps**: per-UID power estimates with foreground/background split, jobs, wakeup alarms, wakelocks, and network use. UIDs are resolved to app names, including shared and system UIDs.
@@ -57,7 +58,13 @@ Requires JDK 17+ and the Android SDK (compileSdk 37).
 
 CI runs all of these, plus a release (R8) build, on every push to `main` and on pull requests.
 
-Test fixtures under `core/batterystats/src/test/resources` are synthetic. Don't commit real dumps; `*.dumpsys.txt` and `dumps/` are gitignored for that reason.
+Most fixtures under `core/batterystats/src/test/resources` are synthetic. The ones in `real/` are captures from a Pixel on Android 17 and an API 34 emulator, run through `scripts/anonymize_dump.py`. It swaps third-party package names for stable placeholders and strips emails, MAC and IP addresses, and long digit runs, keeping the numbers intact. Run any new real dump through it and review the result before committing; raw `*.dumpsys.txt` and `dumps/` are gitignored.
+
+```sh
+adb shell cmd package list packages -U --user 0 > packages.txt
+adb shell dumpsys batterystats --charged > raw.txt
+scripts/anonymize_dump.py --packages packages.txt < raw.txt | gzip > charged.txt.gz
+```
 
 ## License
 

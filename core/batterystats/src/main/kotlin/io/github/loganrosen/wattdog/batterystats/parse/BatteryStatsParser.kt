@@ -16,6 +16,7 @@ import io.github.loganrosen.wattdog.batterystats.model.UidDetail
 import io.github.loganrosen.wattdog.batterystats.model.UidPower
 import io.github.loganrosen.wattdog.batterystats.model.WifiStats
 import io.github.loganrosen.wattdog.batterystats.parse.Units.DURATION_PATTERN
+import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -67,7 +68,7 @@ object BatteryStatsParser {
     private val uidDetailHeader = Regex("""^(u\d+(?:ai|a|i|s)\d+|\d+):$""")
     private val uidPowerHeader = Regex("""^UID (\S+): ([\d.]+)(.*)$""")
     private val uidPowerState = Regex("""\b(fg|bg|fgs|cached): ([\d.]+)""")
-    private val powerComponent = Regex("""^([A-Za-z_]+): ([\d.]+)(?: apps: ([\d.]+))?(?: duration: (.+))?$""")
+    private val powerComponent = Regex("""^([A-Za-z_]+): ([\d.]+)(?: \[[^\]]*])?(?: apps: ([\d.]+))?(?: duration: (.+))?$""")
     private val uidComponent = Regex("""(?:^|\s)([A-Za-z_]+)=([\d.]+)""")
     private val realtimeUptime = Regex("""^(.+?) \(.*?\) realtime, (.+?) \(.*?\) uptime""")
     private val timesX = Regex("""\)\s*(\d+)x""")
@@ -124,6 +125,7 @@ object BatteryStatsParser {
         val uidPower = mutableListOf<UidPower>()
         var currentUidPower: UidPower? = null
         var uidComponentsSeen = false
+        var globalComponentIndent: Int? = null
         val partial = mutableListOf<PartialWakelock>()
         val kernel = mutableListOf<KernelWakelock>()
         val wakeups = mutableListOf<KernelWakelock>()
@@ -214,7 +216,9 @@ object BatteryStatsParser {
                 }
 
                 "Estimated battery capacity" ->
-                    report = report.copy(estimatedCapacityMah = value.removeSuffix("mAh").trim().toIntOrNull())
+                    report = report.copy(
+                        estimatedCapacityMah = value.removeSuffix("mAh").trim().toDoubleOrNull()?.roundToInt(),
+                    )
 
                 "Time on battery" -> parseAwake(value)?.let { report = report.copy(onBattery = it) }
 
@@ -324,20 +328,26 @@ object BatteryStatsParser {
         }
 
         private fun parsePowerChild(indent: Int, content: String) {
+            if (content.startsWith("UID ")) {
+                // API 35+ prints UID rows at the top level; API 34 nests them under the section header.
+                flushUidPower()
+                startUidPower(content)
+                return
+            }
             if (currentUidPower != null) {
                 // Only the first, unconditional component line belongs to the UID total; the
                 // "(on battery, ...)" lines that follow are per-state breakdowns.
                 if (!uidComponentsSeen && !content.startsWith("(")) {
-                    val components = uidComponent.findAll(content).associate {
-                        it.groupValues[1] to it.groupValues[2].toDouble()
-                    }
-                    currentUidPower = currentUidPower!!.copy(components = components)
+                    currentUidPower = currentUidPower!!.copy(components = parseUidComponents(content))
                     uidComponentsSeen = true
                 }
                 return
             }
             when {
-                content == "Global" -> powerSub = PowerSub.GLOBAL_ALL
+                content == "Global" -> {
+                    powerSub = PowerSub.GLOBAL_ALL
+                    globalComponentIndent = null
+                }
 
                 content.startsWith("(") ->
                     powerSub =
@@ -351,18 +361,33 @@ object BatteryStatsParser {
                         appsMah = m.groupValues[3].toDoubleOrNull(),
                         duration = m.groupValues[4].takeIf { it.isNotBlank() }?.let(Units::duration),
                     )
-                    when {
-                        indent == 4 && powerSub == PowerSub.GLOBAL_ALL -> globalPower += component
-                        indent > 4 && powerSub == PowerSub.GLOBAL_SCREEN_OFF -> globalPowerScreenOff += component
+                    when (powerSub) {
+                        PowerSub.GLOBAL_ALL -> {
+                            // Components sit level with "Global" on API 35+ and one level deeper on API 34.
+                            val expected = globalComponentIndent ?: indent.also { globalComponentIndent = it }
+                            if (indent == expected) globalPower += component
+                        }
+
+                        PowerSub.GLOBAL_SCREEN_OFF -> globalPowerScreenOff += component
+
+                        else -> Unit
                     }
                 }
             }
         }
 
+        private fun parseUidComponents(text: String): Map<String, Double> =
+            uidComponent.findAll(text).associate { it.groupValues[1] to it.groupValues[2].toDouble() }
+
         private fun startUidPower(content: String) {
             val m = uidPowerHeader.matchEntire(content) ?: return
             val uid = AppUid.parse(m.groupValues[1]) ?: return
-            val states = uidPowerState.findAll(m.groupValues[3]).associate { it.groupValues[1] to it.groupValues[2].toDouble() }
+            val rest = m.groupValues[3]
+            val inlineAt = Regex("""(?:^|\s)\(\s+[A-Za-z_]+=""").find(rest)?.range?.first
+            val inline = inlineAt?.let { rest.substring(it).trim().removePrefix("(").removeSuffix(")") }.orEmpty()
+            val states = uidPowerState.findAll(inlineAt?.let { rest.substring(0, it) } ?: rest).associate {
+                it.groupValues[1] to it.groupValues[2].toDouble()
+            }
             currentUidPower = UidPower(
                 uid = uid,
                 totalMah = m.groupValues[2].toDouble(),
@@ -370,8 +395,10 @@ object BatteryStatsParser {
                 backgroundMah = states["bg"] ?: 0.0,
                 foregroundServiceMah = states["fgs"] ?: 0.0,
                 cachedMah = states["cached"] ?: 0.0,
+                components = parseUidComponents(inline),
             )
-            uidComponentsSeen = false
+            // API 34 prints components inline: `UID 1000: 0.05 ( cpu=0.01 (8s) sensors=0.04 )`.
+            uidComponentsSeen = inline.isNotBlank()
             section = Section.POWER
         }
 

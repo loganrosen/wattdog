@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
 import io.github.loganrosen.wattdog.BuildConfig
+import java.io.BufferedReader
 import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
@@ -47,11 +48,11 @@ class ShizukuShellClient(context: Context) : DumpSource {
         }
     }
 
-    override suspend fun dump(target: DumpTarget): String {
+    override suspend fun <T> read(target: DumpTarget, block: (BufferedReader) -> T): T {
         val shell = connect()
         return withContext(Dispatchers.IO) {
             val pfd = shell.dumpsys(target.args.toTypedArray()) ?: throw IOException("Shell service returned no output")
-            pfd.readTextAndClose().requireNotDenied(target)
+            pfd.readAndClose { it.consume(target, block) }
         }
     }
 

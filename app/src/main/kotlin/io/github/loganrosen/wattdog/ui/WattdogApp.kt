@@ -1,5 +1,6 @@
 package io.github.loganrosen.wattdog.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
@@ -52,6 +54,7 @@ import io.github.loganrosen.wattdog.data.SnapshotMeta
 import io.github.loganrosen.wattdog.privileged.AccessMode
 import io.github.loganrosen.wattdog.ui.screens.AppsScreen
 import io.github.loganrosen.wattdog.ui.screens.DashboardScreen
+import io.github.loganrosen.wattdog.ui.screens.HistoryScreen
 import io.github.loganrosen.wattdog.ui.screens.RadiosScreen
 import io.github.loganrosen.wattdog.ui.screens.SetupScreen
 import io.github.loganrosen.wattdog.ui.screens.WakelocksScreen
@@ -60,9 +63,12 @@ import java.util.Date
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Home),
+    HISTORY("History", Icons.Default.DateRange),
     WAKELOCKS("Wakelocks", Icons.Default.Lock),
     RADIOS("Radios", Icons.Default.Call),
     APPS("Apps", Icons.AutoMirrored.Filled.List),
+
+    // Reached from the top bar rather than the navigation bar.
     SETUP("Access", Icons.Default.Settings),
 }
 
@@ -116,15 +122,27 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 
     val current = if (hasAccess) tab else Tab.SETUP
 
+    BackHandler(enabled = hasAccess && current != Tab.DASHBOARD) {
+        tab = Tab.DASHBOARD
+        focus = null
+    }
+
+    LaunchedEffect(current, hasAccess) {
+        if (current == Tab.HISTORY && hasAccess) viewModel.loadHistory()
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
-                    if (hasAccess && current != Tab.SETUP) {
-                        BaselinePicker(state.baseline, state.snapshots, viewModel::selectBaseline, viewModel::deleteSnapshot)
-                    } else {
-                        Text("Wattdog")
+                    when {
+                        hasAccess && current != Tab.SETUP ->
+                            BaselinePicker(state.baseline, state.snapshots, viewModel::selectBaseline, viewModel::deleteSnapshot)
+
+                        hasAccess -> Text("Access")
+
+                        else -> Text("Wattdog")
                     }
                 },
                 actions = {
@@ -133,6 +151,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                             Icon(Icons.Default.Refresh, "Refresh")
                         }
+                        IconButton(onClick = { tab = Tab.SETUP }) { Icon(Icons.Default.Settings, "Access") }
                     }
                 },
             )
@@ -140,7 +159,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         bottomBar = {
             if (hasAccess) {
                 NavigationBar {
-                    Tab.entries.forEach { t ->
+                    Tab.entries.filter { it != Tab.SETUP }.forEach { t ->
                         NavigationBarItem(
                             selected = current == t,
                             onClick = {
@@ -177,6 +196,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                             error?.let { ErrorBanner(it) }
                             when (current) {
                                 Tab.DASHBOARD -> DashboardScreen(analysis, ::onAction)
+                                Tab.HISTORY -> HistoryScreen(state.history, analysis, onRetry = { viewModel.loadHistory(force = true) })
                                 Tab.WAKELOCKS -> WakelocksScreen(analysis, focus = focus as? Focus.Wakelocks)
                                 Tab.RADIOS -> RadiosScreen(analysis)
                                 Tab.APPS -> AppsScreen(analysis, focusUid = (focus as? Focus.App)?.uid)
