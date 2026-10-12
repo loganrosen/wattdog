@@ -12,3 +12,6 @@ captures/
 # Raw dumps can contain phone numbers, cell IDs, and other identifiers.
 *.dumpsys.txt
 dumps/
+
+__pycache__/
+*.pyc
