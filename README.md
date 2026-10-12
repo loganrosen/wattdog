@@ -57,4 +57,4 @@ Test fixtures under `core/batterystats/src/test/resources` are synthetic. Don't 
 
 ## License
 
-TBD.
+Wattdog is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE). You can fork and redistribute it, including on app stores, as long as you publish your source under the same license.
