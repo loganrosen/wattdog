@@ -3,6 +3,8 @@ package io.github.loganrosen.wattdog.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.loganrosen.wattdog.AppContainer
+import io.github.loganrosen.wattdog.alerts.AlertState
+import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
 import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParseException
 import io.github.loganrosen.wattdog.data.Analysis
@@ -17,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -63,6 +66,28 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
             }
         }
     }
+
+    private val _pendingAction = MutableStateFlow<SuggestedAction?>(null)
+
+    /** An action from a tapped notification, waiting for the UI to route it. */
+    val pendingAction: StateFlow<SuggestedAction?> = _pendingAction.asStateFlow()
+
+    val backgroundChecksEnabled: StateFlow<Boolean> = container.backgroundChecks.enabled
+    val alertState: StateFlow<AlertState> = container.alertStore.state
+
+    fun openAction(action: SuggestedAction) {
+        _pendingAction.value = action
+    }
+
+    fun actionHandled() {
+        _pendingAction.value = null
+    }
+
+    fun setBackgroundChecks(enabled: Boolean) {
+        viewModelScope.launch { container.backgroundChecks.setEnabled(enabled) }
+    }
+
+    fun checkNow() = container.backgroundChecks.checkNow()
 
     fun onResume() = container.access.refresh()
 

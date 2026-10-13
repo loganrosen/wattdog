@@ -53,6 +53,7 @@ import io.github.loganrosen.wattdog.data.Baseline
 import io.github.loganrosen.wattdog.data.SnapshotMeta
 import io.github.loganrosen.wattdog.privileged.AccessMode
 import io.github.loganrosen.wattdog.ui.screens.AppsScreen
+import io.github.loganrosen.wattdog.ui.screens.BackgroundChecksUi
 import io.github.loganrosen.wattdog.ui.screens.DashboardScreen
 import io.github.loganrosen.wattdog.ui.screens.HistoryScreen
 import io.github.loganrosen.wattdog.ui.screens.RadiosScreen
@@ -69,13 +70,15 @@ private enum class Tab(val label: String, val icon: ImageVector) {
     APPS("Apps", Icons.AutoMirrored.Filled.List),
 
     // Reached from the top bar rather than the navigation bar.
-    SETUP("Access", Icons.Default.Settings),
+    SETUP("Settings", Icons.Default.Settings),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val backgroundEnabled by viewModel.backgroundChecksEnabled.collectAsStateWithLifecycle()
+    val alertState by viewModel.alertState.collectAsStateWithLifecycle()
     val hasAccess = state.access.mode != AccessMode.NONE
     var tab by rememberSaveable { mutableStateOf(Tab.DASHBOARD) }
     var snapshotDialogLabel by remember { mutableStateOf<String?>(null) }
@@ -113,6 +116,14 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
         }
     }
 
+    val pendingAction by viewModel.pendingAction.collectAsStateWithLifecycle()
+    LaunchedEffect(pendingAction) {
+        pendingAction?.let {
+            onAction(it)
+            viewModel.actionHandled()
+        }
+    }
+
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
@@ -140,7 +151,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         hasAccess && current != Tab.SETUP ->
                             BaselinePicker(state.baseline, state.snapshots, viewModel::selectBaseline, viewModel::deleteSnapshot)
 
-                        hasAccess -> Text("Access")
+                        hasAccess -> Text("Settings")
 
                         else -> Text("Wattdog")
                     }
@@ -151,7 +162,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                             Icon(Icons.Default.Refresh, "Refresh")
                         }
-                        IconButton(onClick = { tab = Tab.SETUP }) { Icon(Icons.Default.Settings, "Access") }
+                        IconButton(onClick = { tab = Tab.SETUP }) { Icon(Icons.Default.Settings, "Settings") }
                     }
                 },
             )
@@ -185,6 +196,12 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                         access = state.access,
                         onRequestPermission = viewModel::requestShizukuPermission,
                         launchShizuku = viewModel::shizukuLaunchIntent,
+                        backgroundChecks = BackgroundChecksUi(
+                            enabled = backgroundEnabled,
+                            lastCheck = alertState.lastCheck,
+                            onEnabledChange = viewModel::setBackgroundChecks,
+                            onCheckNow = viewModel::checkNow,
+                        ),
                     )
 
                     error != null && analysis == null -> ErrorState(error, viewModel::refresh)

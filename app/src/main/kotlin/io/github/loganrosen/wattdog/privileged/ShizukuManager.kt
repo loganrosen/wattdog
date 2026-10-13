@@ -2,9 +2,13 @@ package io.github.loganrosen.wattdog.privileged
 
 import android.content.Context
 import android.content.pm.PackageManager
+import kotlin.coroutines.resume
+import kotlin.time.Duration
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import rikka.shizuku.Shizuku
 
 sealed interface ShizukuStatus {
@@ -49,6 +53,28 @@ class ShizukuManager(private val context: Context) {
     }
 
     fun launchIntent() = context.packageManager.getLaunchIntentForPackage(SHIZUKU_PACKAGE)
+
+    /**
+     * When WorkManager starts our process cold, Shizuku hands over its binder asynchronously a moment
+     * later, so an immediate ping reports "not running" even though the server is up.
+     */
+    suspend fun awaitBinder(timeout: Duration): Boolean {
+        if (!Shizuku.pingBinder() && isInstalled()) {
+            var listener: Shizuku.OnBinderReceivedListener? = null
+            try {
+                withTimeoutOrNull(timeout) {
+                    suspendCancellableCoroutine { cont ->
+                        listener = Shizuku.OnBinderReceivedListener { if (cont.isActive) cont.resume(Unit) }
+                            .also(Shizuku::addBinderReceivedListenerSticky)
+                    }
+                }
+            } finally {
+                listener?.let(Shizuku::removeBinderReceivedListener)
+            }
+        }
+        refresh()
+        return Shizuku.pingBinder()
+    }
 
     private fun computeStatus(): ShizukuStatus {
         if (!Shizuku.pingBinder()) {

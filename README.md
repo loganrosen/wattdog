@@ -12,6 +12,7 @@ Think of it as a modern BetterBatteryStats for Android 14+.
 - **Radios**: cellular drain split into app traffic vs standby, cost per MB, signal-strength and network-type breakdowns, which apps keep the modem awake, plus Wi-Fi, Bluetooth scanning, and GPS.
 - **Apps**: per-UID power estimates with foreground/background split, jobs, wakeup alarms, wakelocks, and network use. UIDs are resolved to app names, including shared and system UIDs.
 - **Snapshots**: tap + to save a baseline (say, before bed), then pick it from the title menu to see only what happened since.
+- **Background checks** (off by default, in Settings): every few hours Wattdog diffs the stats against its previous check and notifies about new or worsening findings (warnings and above) from that window, with buttons for the relevant screen or system setting. The same finding won't notify again for 12 hours unless it gets worse. If Shizuku stops (for example after a reboot) and checks keep failing, you get one quiet notice.
 
 ## Access
 
@@ -40,6 +41,7 @@ core/batterystats/   Pure Kotlin/JVM: models, parsers, metrics, anomaly rules, s
 app/                 Android app
   privileged/        Shizuku status + user service (AIDL), direct DUMP-permission path, dumpsys allowlist
   data/              Snapshot store, UID → app resolver, repository
+  alerts/            Background checks: WorkManager job, window checkpoint, notifications
   ui/                Compose Material 3 screens
 ```
 

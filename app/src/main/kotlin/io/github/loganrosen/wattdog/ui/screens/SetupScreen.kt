@@ -1,9 +1,15 @@
 package io.github.loganrosen.wattdog.ui.screens
 
+import android.Manifest
 import android.content.ClipData
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.text.format.DateUtils
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,17 +20,21 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import io.github.loganrosen.wattdog.BuildConfig
+import io.github.loganrosen.wattdog.alerts.LastCheck
 import io.github.loganrosen.wattdog.privileged.AccessMode
 import io.github.loganrosen.wattdog.privileged.AccessState
 import io.github.loganrosen.wattdog.privileged.ShizukuStatus
@@ -34,8 +44,21 @@ import kotlinx.coroutines.launch
 
 private const val SHIZUKU_URL = "https://shizuku.rikka.app/download/"
 
+data class BackgroundChecksUi(
+    val enabled: Boolean,
+    val lastCheck: LastCheck?,
+    val onEnabledChange: (Boolean) -> Unit,
+    val onCheckNow: () -> Unit,
+)
+
 @Composable
-fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShizuku: () -> Intent?, modifier: Modifier = Modifier) {
+fun SetupScreen(
+    access: AccessState,
+    onRequestPermission: () -> Unit,
+    launchShizuku: () -> Intent?,
+    backgroundChecks: BackgroundChecksUi,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -59,6 +82,10 @@ fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShiz
             StatRow("Shizuku", shizukuLabel(access.shizuku))
             StatRow("DUMP permission", if (access.directGranted) "Granted" else "Not granted")
         }
+
+        val hasAccess = access.mode != AccessMode.NONE
+        // Stays visible without access so checks that keep failing can still be turned off.
+        if (hasAccess || backgroundChecks.enabled) BackgroundChecksCard(backgroundChecks, hasAccess)
 
         SectionCard("Option 1: Shizuku") {
             Text(shizukuHelp(access.shizuku), style = MaterialTheme.typography.bodyMedium)
@@ -101,6 +128,50 @@ fun SetupScreen(access: AccessState, onRequestPermission: () -> Unit, launchShiz
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun BackgroundChecksCard(ui: BackgroundChecksUi, hasAccess: Boolean) {
+    val context = LocalContext.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) ui.onEnabledChange(true)
+    }
+    fun enable() {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) ui.onEnabledChange(true) else permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+    SectionCard("Background checks") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Every few hours, check the time since the last check and notify about new wakelock, " +
+                    "background work, or radio problems.",
+                Modifier.weight(1f).padding(end = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(
+                checked = ui.enabled,
+                onCheckedChange = { if (it) enable() else ui.onEnabledChange(false) },
+                enabled = hasAccess || ui.enabled,
+            )
+        }
+        if (ui.enabled) {
+            ui.lastCheck?.let {
+                val now = System.currentTimeMillis()
+                val ago = if (now - it.atMillis < DateUtils.MINUTE_IN_MILLIS) {
+                    "just now"
+                } else {
+                    DateUtils.getRelativeTimeSpanString(it.atMillis, now, DateUtils.MINUTE_IN_MILLIS)
+                }
+                Text(
+                    "Last check $ago: ${it.summary}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OutlinedButton(onClick = ui.onCheckNow, enabled = hasAccess) { Text("Check now") }
+        }
     }
 }
 

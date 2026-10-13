@@ -44,7 +44,7 @@ class BatteryRepository(
     private val resolver: UidResolver,
     private val detector: AnomalyDetector = AnomalyDetector(),
 ) {
-    private class Capture(val raw: String, val report: BatteryStatsReport, val power: PowerState?)
+    class Capture(val raw: String, val report: BatteryStatsReport, val power: PowerState?)
 
     suspend fun analyze(baseline: Baseline): Analysis {
         val now = capture()
@@ -56,17 +56,20 @@ class BatteryRepository(
                 is DeltaResult.StatsReset -> throw StatsResetException(d.reason)
             }
         }
-        return withContext(Dispatchers.Default) {
-            val anomalies = detector.detect(report, now.power)
-            val uids = buildSet {
-                report.uidPower.mapTo(this) { it.uid }
-                report.partialWakelocks.mapTo(this) { it.uid }
-                addAll(report.uids.keys)
-            }
-            // The delta drops unchanged per-UID blocks, so take package hints from the full dump.
-            val labels = uids.associateWith { resolver.resolve(it, now.report.uids[it]?.packages.orEmpty()) }
-            Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), labels, resolver)
+        return analyze(baseline, report, now)
+    }
+
+    /** Analyzes [report], a since-charge report or a delta ending at [now]. */
+    suspend fun analyze(baseline: Baseline, report: BatteryStatsReport, now: Capture): Analysis = withContext(Dispatchers.Default) {
+        val anomalies = detector.detect(report, now.power)
+        val uids = buildSet {
+            report.uidPower.mapTo(this) { it.uid }
+            report.partialWakelocks.mapTo(this) { it.uid }
+            addAll(report.uids.keys)
         }
+        // The delta drops unchanged per-UID blocks, so take package hints from the full dump.
+        val labels = uids.associateWith { resolver.resolve(it, now.report.uids[it]?.packages.orEmpty()) }
+        Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), labels, resolver)
     }
 
     /** Streams `--history`; it can be tens of megabytes, so it's fetched only when the History tab asks. */
@@ -77,7 +80,7 @@ class BatteryRepository(
         return snapshots.save(label, now.raw, now.report, now.power?.batteryLevel)
     }
 
-    private suspend fun capture(): Capture = coroutineScope {
+    suspend fun capture(): Capture = coroutineScope {
         val power = async { runCatching { PowerDumpParser.parse(source.dump(DumpTarget.POWER)) }.getOrNull() }
         val raw = source.dump(DumpTarget.BATTERYSTATS_CHARGED)
         val report = withContext(Dispatchers.Default) { BatteryStatsParser.parse(raw) }

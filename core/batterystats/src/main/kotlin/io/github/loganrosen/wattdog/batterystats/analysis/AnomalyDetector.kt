@@ -37,7 +37,12 @@ data class Anomaly(
     val uid: AppUid? = null,
     /** True when `dumpsys power` shows the holder is still active right now. */
     val activeNow: Boolean = false,
-)
+    /** What the finding is about within its UID (wakelock or alarm tag), for telling findings apart. */
+    val subject: String? = null,
+) {
+    /** Identifies the same finding across reports; independent of the wording of [title] and [detail]. */
+    val key: String get() = listOfNotNull(kind.name, uid?.raw?.toString(), subject).joinToString(":")
+}
 
 data class AnomalyThresholds(
     val audioWakelockMin: Duration = 30.minutes,
@@ -103,6 +108,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         ),
                         uid = wl.uid,
                         activeNow = wl.activeNow() || wl.isHeld,
+                        subject = wl.tag,
                     ),
                 )
             }
@@ -134,6 +140,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     ),
                     uid = wl.uid,
                     activeNow = wl.activeNow() || wl.isHeld,
+                    subject = wl.tag,
                 ),
             )
         }
@@ -181,6 +188,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                                     SuggestedAction.OpenAppBatteryUsage(detail.uid),
                                 ),
                                 uid = detail.uid,
+                                subject = alarm.tag,
                             ),
                         )
                     }

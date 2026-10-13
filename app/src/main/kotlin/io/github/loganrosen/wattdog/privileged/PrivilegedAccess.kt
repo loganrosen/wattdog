@@ -1,6 +1,7 @@
 package io.github.loganrosen.wattdog.privileged
 
 import java.io.BufferedReader
+import kotlin.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +36,13 @@ class PrivilegedAccess(
     fun refresh() {
         shizuku.refresh()
         directGranted.value = direct.isAvailable()
+    }
+
+    /** Like [refresh], but gives a cold-started process time to receive Shizuku's binder. */
+    suspend fun awaitAccess(timeout: Duration): AccessMode {
+        shizuku.awaitBinder(timeout)
+        directGranted.value = direct.isAvailable()
+        return AccessState(shizuku.status.value, directGranted.value).mode
     }
 
     fun requestShizukuPermission() = shizuku.requestPermission()

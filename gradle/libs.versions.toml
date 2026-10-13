@@ -14,6 +14,7 @@ kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.11.0"
 lifecycle = "2.11.0"
 shizuku = "13.1.5"
+work = "2.12.0"
 spotless = "8.10.4"
 ktlint = "1.8.0"
 compose-rules = "0.6.8"
@@ -36,6 +37,7 @@ lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-com
 lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
 shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 compose-rules-ktlint = { module = "io.nlopez.compose.rules:ktlint", version.ref = "compose-rules" }
 
 [plugins]
