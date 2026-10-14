@@ -48,7 +48,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.WindowPresets
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
@@ -72,6 +75,8 @@ import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Home),
@@ -97,6 +102,19 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var launchError by remember { mutableStateOf<String?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    // Android has no public callback for permission changes, so an adb grant made while we're in
+    // the foreground would otherwise go unnoticed until the next resume.
+    LaunchedEffect(hasAccess) {
+        if (hasAccess) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(1.seconds)
+                viewModel.recheckAccess()
+            }
+        }
+    }
 
     LaunchedEffect(launchError) {
         launchError?.let {

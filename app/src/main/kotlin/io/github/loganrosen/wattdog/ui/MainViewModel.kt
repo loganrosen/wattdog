@@ -96,7 +96,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun checkNow() = container.backgroundChecks.checkNow()
 
-    fun onResume() = container.access.refresh()
+    fun recheckAccess() = container.access.refresh()
 
     fun requestShizukuPermission() = container.access.requestShizukuPermission()
 
