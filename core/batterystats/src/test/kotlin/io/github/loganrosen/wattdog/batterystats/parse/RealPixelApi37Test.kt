@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.batterystats.parse
 import io.github.loganrosen.wattdog.batterystats.Fixtures
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyDetector
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyKind
+import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.RadioAttribution
 import io.github.loganrosen.wattdog.batterystats.analysis.Severity
@@ -126,6 +127,8 @@ class RealPixelApi37Test {
             val phantom = anomalies.single { it.kind == AnomalyKind.PHANTOM_WAKELOCK }
             assertEquals(AppUid(10316), phantom.uid)
             assertEquals(Severity.INFO, phantom.severity)
+            assertEquals(DrainCost.Basis.NOT_REAL, phantom.cost?.basis)
+            assertTrue(phantom.cost!!.mah > 0)
             assertTrue(anomalies.none { it.kind == AnomalyKind.STUCK_AUDIO_WAKELOCK && it.uid == AppUid(10316) })
         }
     }

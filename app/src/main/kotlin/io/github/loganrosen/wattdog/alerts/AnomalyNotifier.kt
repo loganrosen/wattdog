@@ -60,7 +60,7 @@ class AnomalyNotifier(private val context: Context) {
                 ?.let { action to it }
         }
         val app = anomaly.uid?.let { analysis.label(it).label }
-        val text = "Last ${window.formatShort()}: ${anomaly.detail}"
+        val text = "Last ${window.formatShort()}: " + (anomaly.cost?.let { "${it.summary()}. " } ?: "") + anomaly.detail
 
         val builder = NotificationCompat.Builder(context, CHANNEL_FINDINGS)
             .setSmallIcon(R.drawable.ic_stat_wattdog)

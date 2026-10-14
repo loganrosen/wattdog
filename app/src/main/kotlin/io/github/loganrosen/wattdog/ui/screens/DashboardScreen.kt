@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
 import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
+import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
@@ -108,6 +109,17 @@ private fun AnomalyRow(anomaly: Anomaly, appLabel: String?, actions: List<Sugges
             }
             if (appLabel != null) {
                 Text(appLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            }
+            anomaly.cost?.let { cost ->
+                Text(
+                    cost.summary(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (cost.basis == DrainCost.Basis.NOT_REAL) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        anomaly.severity.color()
+                    },
+                )
             }
             Text(anomaly.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(

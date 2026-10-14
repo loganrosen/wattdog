@@ -56,6 +56,27 @@ class AnomalyDetectorTest {
     }
 
     @Test
+    fun `stuck wakelock is charged its uid's wakelock power`() {
+        val cost = of(AnomalyKind.STUCK_AUDIO_WAKELOCK).single().cost!!
+        assertEquals(DrainCost.Basis.ESTIMATED, cost.basis)
+        assertEquals(55.0, cost.mah, 0.01)
+        assertEquals("≈1.1% of battery (55 mAh)", cost.summary())
+    }
+
+    @Test
+    fun `cellular standby and screen-off findings carry a cost`() {
+        assertTrue(of(AnomalyKind.CELLULAR_STANDBY).single().cost!!.mah > 0)
+        assertTrue(of(AnomalyKind.FREQUENT_ALARM).single().cost == null)
+    }
+
+    @Test
+    fun `cost summary wording`() {
+        assertEquals("At most 0.5% of battery (25 mAh)", DrainCost(25.0, DrainCost.Basis.UPPER_BOUND, 0.005, null).summary())
+        assertEquals("12 mAh", DrainCost(12.0, DrainCost.Basis.MEASURED, null, null).summary())
+        assertEquals("≈<0.1% of battery (2.0 mAh)", DrainCost(2.0, DrainCost.Basis.ESTIMATED, 0.0004, null).summary())
+    }
+
+    @Test
     fun `screen-off health`() {
         assertEquals(Severity.CRITICAL, of(AnomalyKind.SCREEN_OFF_AWAKE).single().severity)
         assertEquals(Severity.WARNING, of(AnomalyKind.HIGH_SCREEN_OFF_DRAIN).single().severity)

@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
+import io.github.loganrosen.wattdog.batterystats.analysis.formatBatteryShare
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
 import io.github.loganrosen.wattdog.batterystats.model.KernelWakelock
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
@@ -126,6 +128,8 @@ private fun PartialList(items: List<PartialWakelock>, analysis: Analysis, focus:
                 subtitle = buildString {
                     append(analysis.label(wl.uid).label)
                     if (wl.count > 0) append(" · ${wl.count}×")
+                    val cost = analysis.wakelockCosts.of(wl, DrainCost.Basis.ESTIMATED)?.ofBattery
+                    if (cost != null && !phantom) append(" · ≈${formatBatteryShare(cost)}")
                     if (phantom) {
                         append(" · stuck stats timer, not real drain")
                     } else if (heldFor != null) {

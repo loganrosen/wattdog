@@ -40,6 +40,8 @@ data class Anomaly(
     val activeNow: Boolean = false,
     /** What the finding is about within its UID (wakelock or alarm tag), for telling findings apart. */
     val subject: String? = null,
+    /** Battery the finding accounts for, when it can be estimated. */
+    val cost: DrainCost? = null,
 ) {
     /** Identifies the same finding across reports; independent of the wording of [title] and [detail]. */
     val key: String get() = listOfNotNull(kind.name, uid?.raw?.toString(), subject).joinToString(":")
@@ -76,6 +78,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
         val metrics = DrainMetrics.from(report)
         val phantoms = PhantomWakelocks(report, power)
         fun PartialWakelock.activeNow() = phantoms.isHeldNow(this)
+        val uidPower = report.uidPower.associateBy { it.uid }
+        val wakelockCosts = WakelockCosts(report)
+        fun PartialWakelock.cost(basis: DrainCost.Basis) = wakelockCosts.of(this, basis)
 
         val (phantom, real) = report.partialWakelocks.partition { phantoms.isPhantom(it) }
         phantom.filter { it.total >= t.audioWakelockMin }.forEach { wl ->
@@ -97,6 +102,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     actions = listOf(SuggestedAction.ShowWakelocks(wl.uid, wl.tag, wl.kind)),
                     uid = wl.uid,
                     subject = wl.tag,
+                    cost = wl.cost(DrainCost.Basis.NOT_REAL),
                 ),
             )
         }
@@ -130,6 +136,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         uid = wl.uid,
                         activeNow = wl.activeNow() || wl.isHeld,
                         subject = wl.tag,
+                        cost = wl.cost(DrainCost.Basis.ESTIMATED),
                     ),
                 )
             }
@@ -162,6 +169,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     uid = wl.uid,
                     activeNow = wl.activeNow() || wl.isHeld,
                     subject = wl.tag,
+                    cost = wl.cost(DrainCost.Basis.ESTIMATED),
                 ),
             )
         }
@@ -185,6 +193,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                             SuggestedAction.OpenAppBatteryUsage(detail.uid),
                         ),
                         uid = detail.uid,
+                        cost = uidPower[detail.uid]?.let {
+                            DrainCost.of(report, it.totalMah - it.foregroundMah, DrainCost.Basis.UPPER_BOUND)
+                        },
                     ),
                 )
             }
@@ -241,6 +252,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         SuggestedAction.TakeSnapshot("Before LTE test"),
                         SuggestedAction.ShowRadios,
                     ),
+                    cost = DrainCost.of(report, radio.cellularStandbyMah, DrainCost.Basis.ESTIMATED),
                 ),
             )
         }
@@ -256,6 +268,12 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         "with the screen off. Partial wakelocks total ${report.totalPartialWakelock.formatShort()}.",
                     advice = "Something kept the CPU running. Start with the longest app wakelocks.",
                     actions = listOf(SuggestedAction.ShowWakelocks()),
+                    cost = DrainCost.of(
+                        report,
+                        report.globalPowerScreenOff.filter { it.name == "cpu" || it.name == "wakelock" }.sumOf { it.totalMah } -
+                            phantom.sumOf { wakelockCosts.mah(it) },
+                        DrainCost.Basis.ESTIMATED,
+                    ),
                 ),
             )
         }
@@ -275,6 +293,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     advice = "Check the other findings first. If none explain it, compare wakelocks, radios, " +
                         "and per-app drain.",
                     actions = listOf(SuggestedAction.ShowWakelocks(), SuggestedAction.ShowRadios, SuggestedAction.ShowApps),
+                    cost = DrainCost.of(report, metrics.screenOffMah.toDouble(), DrainCost.Basis.MEASURED),
                 ),
             )
         }
@@ -309,6 +328,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                     advice = "Take a snapshot, turn off \u201cAlways show time and info\u201d in lock screen " +
                         "settings for a day, and compare.",
                     actions = listOf(SuggestedAction.OpenLockScreenSettings, SuggestedAction.TakeSnapshot("Before AOD off")),
+                    cost = DrainCost.of(report, doze.screenDozeMah.toDouble(), DrainCost.Basis.MEASURED),
                 ),
             )
         }
@@ -331,6 +351,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         SuggestedAction.OpenBluetoothSettings,
                     ),
                     uid = scanner?.uid,
+                    cost = report.globalComponent("bluetooth")?.let {
+                        DrainCost.of(report, it.totalMah, DrainCost.Basis.ESTIMATED)
+                    },
                 ),
             )
         }
@@ -348,5 +371,9 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                 ),
             )
         }
-    }.sortedWith(compareByDescending<Anomaly> { it.severity }.thenByDescending { it.activeNow })
+    }.sortedWith(
+        compareByDescending<Anomaly> { it.severity }
+            .thenByDescending { it.activeNow }
+            .thenByDescending { it.cost?.takeIf { c -> c.basis != DrainCost.Basis.NOT_REAL }?.mah ?: 0.0 },
+    )
 }
