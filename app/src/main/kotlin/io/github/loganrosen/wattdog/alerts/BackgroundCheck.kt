@@ -6,20 +6,25 @@ import io.github.loganrosen.wattdog.batterystats.analysis.ReportDelta
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
 import io.github.loganrosen.wattdog.data.Baseline
 import io.github.loganrosen.wattdog.data.BatteryRepository
+import io.github.loganrosen.wattdog.data.SnapshotStore
+import io.github.loganrosen.wattdog.data.StatsSession
 import io.github.loganrosen.wattdog.privileged.AccessMode
 import io.github.loganrosen.wattdog.privileged.DumpPermissionDeniedException
 import io.github.loganrosen.wattdog.privileged.NoPrivilegedAccessException
 import io.github.loganrosen.wattdog.privileged.PrivilegedAccess
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * One background pass: diff against the previous check's dump so findings describe the last few
- * hours instead of the whole since-charge interval, then notify what [AlertPolicy] lets through.
+ * One background pass: save an automatic snapshot (the presets in the baseline picker come from
+ * these), diff against one from a few hours ago so findings describe recent drain rather than the
+ * whole since-charge interval, then notify what [AlertPolicy] lets through.
  */
 class BackgroundCheck(
     private val access: PrivilegedAccess,
     private val repository: BatteryRepository,
+    private val snapshots: SnapshotStore,
     private val store: AlertStore,
     private val notifier: AnomalyNotifier,
     private val policy: AlertPolicy = AlertPolicy(),
@@ -51,26 +56,33 @@ class BackgroundCheck(
             finish(now, "Charging; skipped")
             return
         }
-        val previous = store.checkpoint()
-        if (previous == null) {
-            store.saveCheckpoint(capture.raw)
+        val session = StatsSession.of(capture.report)
+        snapshots.pruneAuto(session, now, AUTO_KEEP.inWholeMilliseconds)
+        snapshots.load()
+        val autos = snapshots.snapshots.value.filter { it.auto }
+        val firstCheck = store.state.value.lastCheck == null
+        if (autos.none { now - it.capturedAtMillis < MIN_AUTO_SPACING.inWholeMilliseconds }) {
+            snapshots.save(AUTO_LABEL, capture.raw, capture.report, capture.power?.batteryLevel, auto = true, capturedAtMillis = now)
+        }
+        if (firstCheck) {
             finish(now, "Started watching")
             return
         }
-        val window = when (val d = ReportDelta.compute(previous, capture.report)) {
+        // The newest snapshot at least ALERT_WINDOW old, else the oldest there is. With none, stats
+        // were reset (charged or rebooted) and the since-charge interval is the only window left.
+        val start = autos.filter { now - it.capturedAtMillis >= ALERT_WINDOW.inWholeMilliseconds }.maxByOrNull { it.capturedAtMillis }
+            ?: autos.minByOrNull { it.capturedAtMillis }
+        val startReport = start?.let { runCatching { snapshots.report(it.id) }.getOrNull() }
+        val window = when (val d = startReport?.let { ReportDelta.compute(it, capture.report) }) {
             is DeltaResult.Ok -> d.delta
-
-            // Stats reset (charged or rebooted); the since-charge interval is the only window left.
-            is DeltaResult.StatsReset -> capture.report
+            is DeltaResult.StatsReset, null -> capture.report
         }
         val length = window.onBattery.realtime
         if (length < MIN_WINDOW) {
-            // Keep the older checkpoint so the window keeps growing.
-            finish(now, "Only ${length.formatShort()} on battery since last check")
+            finish(now, "Watching; only ${length.formatShort()} on battery so far")
             return
         }
         val analysis = repository.analyze(Baseline.SinceCharge, window, capture)
-        store.saveCheckpoint(capture.raw)
         var notified = 0
         // With notifications blocked, record nothing, so findings still alert once they're allowed again.
         if (notifier.canPost()) {
@@ -110,6 +122,10 @@ class BackgroundCheck(
 
     companion object {
         val MIN_WINDOW = 45.minutes
+        private val ALERT_WINDOW = 3.hours
+        private val AUTO_KEEP = 48.hours
+        private val MIN_AUTO_SPACING = 20.minutes
+        private const val AUTO_LABEL = "Auto"
         private val BINDER_WAIT = 10.seconds
         private const val FAILURES_BEFORE_NOTICE = 3
     }

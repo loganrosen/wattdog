@@ -61,6 +61,13 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     init {
         viewModelScope.launch { container.snapshots.load() }
         viewModelScope.launch {
+            // Automatic snapshots get pruned in the background; don't keep pointing at a deleted one.
+            container.snapshots.snapshots.collect { snaps ->
+                val selected = (load.value.baseline as? Baseline.Snapshot)?.meta ?: return@collect
+                if (snaps.none { it.id == selected.id }) selectBaseline(Baseline.SinceCharge)
+            }
+        }
+        viewModelScope.launch {
             container.access.state.map { it.mode }.distinctUntilChanged().collect { mode ->
                 if (mode != AccessMode.NONE) refresh()
             }
@@ -114,6 +121,16 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 val analysis = container.repository.analyze(load.value.baseline)
                 load.update { it.copy(loading = false, analysis = analysis) }
+            } catch (_: StatsResetException) {
+                // The phone charged or rebooted since the chosen starting point; it can't come back.
+                load.update {
+                    it.copy(
+                        baseline = Baseline.SinceCharge,
+                        loading = false,
+                        message = "Stats were reset since then (charged or rebooted). Showing since unplugged.",
+                    )
+                }
+                analyze()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -145,7 +162,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 val meta = container.repository.takeSnapshot(label)
-                load.update { it.copy(message = "Snapshot \"${meta.label}\" saved") }
+                load.update { it.copy(message = "Marked \"${meta.label}\". Pick it from the title menu later.") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -164,8 +181,6 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     fun messageShown() = load.update { it.copy(message = null) }
 
     private fun describe(e: Exception): String = when (e) {
-        is StatsResetException -> "${e.message}. Pick a newer snapshot or view since charge."
-
         is DumpPermissionDeniedException ->
             "The system refused the dump. If you granted DUMP over adb, also grant PACKAGE_USAGE_STATS.\n${e.message}"
 

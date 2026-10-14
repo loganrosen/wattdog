@@ -26,7 +26,20 @@ data class SnapshotMeta(
     val onBatteryRealtimeMs: Long,
     val dischargeMah: Int,
     val batteryLevel: Int?,
-)
+    /** Saved by background checks rather than by the user; pruned automatically. */
+    val auto: Boolean = false,
+) {
+    /** Whether a delta from this snapshot to [session] is possible, i.e. stats weren't reset in between. */
+    fun belongsTo(session: StatsSession): Boolean =
+        startClockTime == session.startClockTime && onBatteryRealtimeMs <= session.onBatteryRealtimeMs
+}
+
+/** Identifies the batterystats interval a dump came from, so snapshots can be checked without parsing them. */
+data class StatsSession(val startClockTime: String?, val onBatteryRealtimeMs: Long) {
+    companion object {
+        fun of(report: BatteryStatsReport) = StatsSession(report.startClockTime, report.onBattery.realtime.inWholeMilliseconds)
+    }
+}
 
 /**
  * Raw dumps are kept (gzipped) instead of parsed reports so parser improvements apply to old
@@ -40,15 +53,23 @@ class SnapshotStore(private val dir: File) {
 
     suspend fun load() = io { _snapshots.value = readAll() }
 
-    suspend fun save(label: String, batterystats: String, report: BatteryStatsReport, batteryLevel: Int?): SnapshotMeta = io {
+    suspend fun save(
+        label: String,
+        batterystats: String,
+        report: BatteryStatsReport,
+        batteryLevel: Int?,
+        auto: Boolean = false,
+        capturedAtMillis: Long = System.currentTimeMillis(),
+    ): SnapshotMeta = io {
         val meta = SnapshotMeta(
             id = UUID.randomUUID().toString(),
             label = label,
-            capturedAtMillis = System.currentTimeMillis(),
+            capturedAtMillis = capturedAtMillis,
             startClockTime = report.startClockTime,
             onBatteryRealtimeMs = report.onBattery.realtime.inWholeMilliseconds,
             dischargeMah = report.discharge.totalMah,
             batteryLevel = batteryLevel,
+            auto = auto,
         )
         dir.mkdirs()
         GZIPOutputStream(dumpFile(meta.id).outputStream()).bufferedWriter().use { it.write(batterystats) }
@@ -61,9 +82,19 @@ class SnapshotStore(private val dir: File) {
         GZIPInputStream(dumpFile(id).inputStream()).bufferedReader().useLines { BatteryStatsParser.parse(it) }
     }
 
-    suspend fun delete(id: String) = io {
-        dumpFile(id).delete()
-        metaFile(id).delete()
+    suspend fun delete(id: String) = deleteWhere { it.id == id }
+
+    /** Deletes automatic snapshots from other stats sessions or older than [maxAgeMillis]. */
+    suspend fun pruneAuto(session: StatsSession, nowMillis: Long, maxAgeMillis: Long) =
+        deleteWhere { it.auto && (!it.belongsTo(session) || nowMillis - it.capturedAtMillis > maxAgeMillis) }
+
+    suspend fun deleteAuto() = deleteWhere { it.auto }
+
+    private suspend fun deleteWhere(predicate: (SnapshotMeta) -> Boolean) = io {
+        readAll().filter(predicate).forEach {
+            dumpFile(it.id).delete()
+            metaFile(it.id).delete()
+        }
         _snapshots.value = readAll()
     }
 

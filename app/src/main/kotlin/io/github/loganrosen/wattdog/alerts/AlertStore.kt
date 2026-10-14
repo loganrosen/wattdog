@@ -2,11 +2,7 @@ package io.github.loganrosen.wattdog.alerts
 
 import io.github.loganrosen.wattdog.batterystats.analysis.AlertRecord
 import io.github.loganrosen.wattdog.batterystats.analysis.Severity
-import io.github.loganrosen.wattdog.batterystats.model.BatteryStatsReport
-import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParser
 import java.io.File
-import java.util.zip.GZIPInputStream
-import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,33 +34,20 @@ data class AlertState(
         copy(records = records.mapValues { (_, r) -> StoredRecord(r.severity.name, r.notifiedAtMillis) })
 }
 
-/**
- * Background-check state: the dump from the previous check (the start of the next window) and
- * which findings were already notified. Kept apart from user snapshots so it never shows in the
- * baseline picker.
- */
+/** Background-check state: which findings were already notified, access failures, the last result. */
 class AlertStore(private val dir: File) {
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
-    private val checkpointFile = File(dir, "checkpoint.batterystats.txt.gz")
+
+    // Windows used to start from a single saved dump; they now start from automatic snapshots.
+    private val legacyCheckpoint = File(dir, "checkpoint.batterystats.txt.gz")
     private val stateFile = File(dir, "state.json")
     private val _state = MutableStateFlow(AlertState())
     val state: StateFlow<AlertState> = _state.asStateFlow()
 
-    suspend fun load() = io { _state.value = read() }
-
-    suspend fun checkpoint(): BatteryStatsReport? = io {
-        if (!checkpointFile.exists()) return@io null
-        runCatching {
-            GZIPInputStream(checkpointFile.inputStream()).bufferedReader().useLines { BatteryStatsParser.parse(it) }
-        }.getOrNull()
-    }
-
-    suspend fun saveCheckpoint(raw: String) = io {
-        dir.mkdirs()
-        val tmp = File(dir, checkpointFile.name + ".tmp")
-        GZIPOutputStream(tmp.outputStream()).bufferedWriter().use { it.write(raw) }
-        tmp.renameTo(checkpointFile)
+    suspend fun load() = io {
+        legacyCheckpoint.delete()
+        _state.value = read()
     }
 
     suspend fun update(block: (AlertState) -> AlertState) = io {
@@ -76,7 +59,6 @@ class AlertStore(private val dir: File) {
 
     /** Forget everything, so re-enabling starts a fresh window. */
     suspend fun clear() = io {
-        checkpointFile.delete()
         stateFile.delete()
         _state.value = AlertState()
     }

@@ -22,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -49,6 +50,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
+import io.github.loganrosen.wattdog.batterystats.analysis.WindowPresets
+import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
+import io.github.loganrosen.wattdog.data.Analysis
 import io.github.loganrosen.wattdog.data.Baseline
 import io.github.loganrosen.wattdog.data.SnapshotMeta
 import io.github.loganrosen.wattdog.privileged.AccessMode
@@ -60,7 +64,14 @@ import io.github.loganrosen.wattdog.ui.screens.RadiosScreen
 import io.github.loganrosen.wattdog.ui.screens.SetupScreen
 import io.github.loganrosen.wattdog.ui.screens.WakelocksScreen
 import java.text.DateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.TextStyle
 import java.util.Date
+import java.util.Locale
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Home),
@@ -149,7 +160,18 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 title = {
                     when {
                         hasAccess && current != Tab.SETUP ->
-                            BaselinePicker(state.baseline, state.snapshots, viewModel::selectBaseline, viewModel::deleteSnapshot)
+                            BaselinePicker(
+                                BaselinePickerUi(
+                                    baseline = state.baseline,
+                                    snapshots = state.snapshots,
+                                    analysis = state.analysis,
+                                    autoEnabled = backgroundEnabled,
+                                    onSelect = viewModel::selectBaseline,
+                                    onDelete = viewModel::deleteSnapshot,
+                                    onMarkNow = { snapshotDialogLabel = "" },
+                                    onOpenSettings = { tab = Tab.SETUP },
+                                ),
+                            )
 
                         hasAccess -> Text("Settings")
 
@@ -158,7 +180,6 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                 },
                 actions = {
                     if (hasAccess) {
-                        IconButton(onClick = { snapshotDialogLabel = "" }) { Icon(Icons.Default.Add, "Take snapshot") }
                         IconButton(onClick = viewModel::refresh, enabled = !state.loading) {
                             Icon(Icons.Default.Refresh, "Refresh")
                         }
@@ -239,58 +260,171 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun BaselinePicker(
-    baseline: Baseline,
-    snapshots: List<SnapshotMeta>,
-    onSelect: (Baseline) -> Unit,
-    onDelete: (SnapshotMeta) -> Unit,
-) {
+private fun BaselinePicker(ui: BaselinePickerUi, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    var confirmDelete by remember { mutableStateOf<SnapshotMeta?>(null) }
+    Box(modifier) {
         TextButton(onClick = { expanded = true }) {
-            Text(
-                when (baseline) {
-                    Baseline.SinceCharge -> "Since unplugged"
-                    is Baseline.Snapshot -> "Since ${baseline.meta.label}"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(
+                    when (val b = ui.baseline) {
+                        Baseline.SinceCharge -> "Since unplugged"
+                        is Baseline.Snapshot -> "Since ${b.meta.title()}"
+                    },
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                ui.windowLength?.let {
+                    Text("${it.formatShort()} on battery", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                }
+            }
             Icon(Icons.Default.ArrowDropDown, null)
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+            fun select(baseline: Baseline) {
+                expanded = false
+                ui.onSelect(baseline)
+            }
+            val now = remember(expanded) { System.currentTimeMillis() }
+            val session = ui.analysis?.session
+            val autos = ui.snapshots.filter { it.auto && ui.usable(it) }
+            val presets = remember(autos, now) { WindowPresets.pick(autos, { it.capturedAtMillis }, now, ZoneId.systemDefault()) }
+            val marks = ui.snapshots.filter { !it.auto }
+
+            MenuHeader("Recent")
             DropdownMenuItem(
-                text = { Text("Since unplugged") },
-                onClick = {
-                    expanded = false
-                    onSelect(Baseline.SinceCharge)
-                },
+                text = { MenuText("Since unplugged", session?.let { "${it.onBatteryRealtimeMs.milliseconds.formatShort()} on battery" }) },
+                onClick = { select(Baseline.SinceCharge) },
             )
-            snapshots.forEach { meta ->
+            presets.forEach { p ->
                 DropdownMenuItem(
                     text = {
-                        Column {
-                            Text(meta.label)
-                            Text(
-                                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                                    .format(Date(meta.capturedAtMillis)),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
+                        MenuText(
+                            p.kind.label,
+                            "Since ${clockTime(
+                                p.startMillis,
+                                now,
+                            )} · ${(now - p.startMillis).milliseconds.inWholeMinutes.minutes.formatShort()} ago",
+                        )
                     },
+                    onClick = { select(Baseline.Snapshot(p.point)) },
+                )
+            }
+            when {
+                !ui.autoEnabled -> DropdownMenuItem(
+                    text = { MenuText("Last hour, overnight…", "Turn on background checks to get these") },
                     onClick = {
                         expanded = false
-                        onSelect(Baseline.Snapshot(meta))
+                        ui.onOpenSettings()
                     },
+                )
+
+                presets.isEmpty() -> DropdownMenuItem(
+                    text = { MenuText("Last hour, overnight…", "Appear after an hour or so on battery") },
+                    onClick = {},
+                    enabled = false,
+                )
+            }
+
+            HorizontalDivider()
+            MenuHeader("Marks")
+            marks.forEach { meta ->
+                val stale = !ui.usable(meta)
+                DropdownMenuItem(
+                    text = {
+                        MenuText(
+                            meta.label,
+                            if (stale) "Stats reset since (charged or rebooted)" else dateTime(meta.capturedAtMillis),
+                        )
+                    },
+                    onClick = { select(Baseline.Snapshot(meta)) },
+                    enabled = !stale,
                     trailingIcon = {
-                        IconButton(onClick = { onDelete(meta) }) { Icon(Icons.Default.Delete, "Delete snapshot") }
+                        IconButton(onClick = { confirmDelete = meta }) { Icon(Icons.Default.Delete, "Delete ${meta.label}") }
                     },
                 )
             }
+            DropdownMenuItem(
+                text = { MenuText("Mark now…", "Save this moment to compare against later") },
+                leadingIcon = { Icon(Icons.Default.Add, null) },
+                onClick = {
+                    expanded = false
+                    ui.onMarkNow()
+                },
+            )
         }
     }
+    confirmDelete?.let { meta ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            title = { Text("Delete \"${meta.label}\"?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = null
+                    ui.onDelete(meta)
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Cancel") } },
+        )
+    }
 }
+
+private class BaselinePickerUi(
+    val baseline: Baseline,
+    val snapshots: List<SnapshotMeta>,
+    val analysis: Analysis?,
+    val autoEnabled: Boolean,
+    val onSelect: (Baseline) -> Unit,
+    val onDelete: (SnapshotMeta) -> Unit,
+    val onMarkNow: () -> Unit,
+    val onOpenSettings: () -> Unit,
+)
+
+/** On-battery time covered by what's shown, once it matches [BaselinePickerUi.baseline]. */
+private val BaselinePickerUi.windowLength: Duration?
+    get() = analysis?.takeIf { it.baseline == baseline }?.report?.onBattery?.realtime
+
+/**
+ * Whether a snapshot can still be compared against: it's from the current stats interval. One
+ * saved after the last load is newer than anything known about, so it's given the benefit of the doubt.
+ */
+private fun BaselinePickerUi.usable(meta: SnapshotMeta): Boolean =
+    analysis == null || meta.capturedAtMillis > analysis.capturedAtMillis || meta.belongsTo(analysis.session)
+
+@Composable
+private fun MenuHeader(text: String) {
+    Text(
+        text,
+        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+@Composable
+private fun MenuText(title: String, detail: String?) {
+    Column {
+        Text(title)
+        detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+private fun SnapshotMeta.title(): String = if (auto) clockTime(capturedAtMillis, System.currentTimeMillis()) else label
+
+/** "10:52 PM", or "Tue 10:52 PM" when it wasn't today. */
+private fun clockTime(millis: Long, now: Long): String {
+    val zone = ZoneId.systemDefault()
+    val at = Instant.ofEpochMilli(millis).atZone(zone)
+    val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(millis))
+    return if (at.toLocalDate() == Instant.ofEpochMilli(now).atZone(zone).toLocalDate()) {
+        time
+    } else {
+        "${at.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} $time"
+    }
+}
+
+private fun dateTime(millis: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 
 @Composable
 private fun SnapshotDialog(initialLabel: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
@@ -298,17 +432,19 @@ private fun SnapshotDialog(initialLabel: String, onDismiss: () -> Unit, onConfir
     var label by remember { mutableStateOf(initialLabel) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Take snapshot") },
+        title = { Text("Mark now") },
         text = {
             Column {
                 Text(
-                    "Saves the current stats as a baseline. Pick it from the title menu later to see only what " +
-                        "happened since, e.g. an overnight test.",
+                    "Saves the current stats so you can later see only what happened since, e.g. before " +
+                        "changing a setting. Pick it under Marks in the title menu. Marks stop working once " +
+                        "the phone charges.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
+                    label = { Text("Name") },
                     placeholder = { Text(default) },
                     singleLine = true,
                     modifier = Modifier.padding(top = 12.dp),

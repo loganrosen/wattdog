@@ -35,6 +35,6 @@ class AppContainer(context: Context) {
 
     val alertStore = AlertStore(File(context.filesDir, "alerts")).also { appScope.launch { it.load() } }
     val notifier = AnomalyNotifier(context)
-    val backgroundCheck = BackgroundCheck(access, repository, alertStore, notifier)
-    val backgroundChecks = BackgroundChecks(context, alertStore)
+    val backgroundCheck = BackgroundCheck(access, repository, snapshots, alertStore, notifier)
+    val backgroundChecks = BackgroundChecks(context, alertStore, snapshots)
 }

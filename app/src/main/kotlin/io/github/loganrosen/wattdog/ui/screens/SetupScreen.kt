@@ -145,8 +145,9 @@ private fun BackgroundChecksCard(ui: BackgroundChecksUi, hasAccess: Boolean) {
     SectionCard("Background checks") {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Every few hours, check the time since the last check and notify about new wakelock, " +
-                    "background work, or radio problems.",
+                "Every hour on battery, save an automatic snapshot (kept two days) so the title menu can " +
+                    "show the last few hours or overnight, and notify about new wakelock, background work, " +
+                    "or radio problems.",
                 Modifier.weight(1f).padding(end = 12.dp),
                 style = MaterialTheme.typography.bodyMedium,
             )

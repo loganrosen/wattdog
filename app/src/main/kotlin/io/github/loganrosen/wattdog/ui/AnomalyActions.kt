@@ -23,7 +23,7 @@ fun SuggestedAction.label(): String = when (this) {
     is SuggestedAction.ShowApp -> "App details"
     SuggestedAction.ShowApps -> "View apps"
     SuggestedAction.ShowRadios -> "View radios"
-    is SuggestedAction.TakeSnapshot -> "Take snapshot"
+    is SuggestedAction.TakeSnapshot -> "Mark now"
     is SuggestedAction.OpenAppInfo -> "Open App info"
     is SuggestedAction.OpenAppBatteryUsage -> "App battery settings"
     SuggestedAction.OpenMobileNetworkSettings -> "Mobile network settings"

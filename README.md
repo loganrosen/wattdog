@@ -11,8 +11,8 @@ Think of it as a modern BetterBatteryStats for Android 14+.
 - **Wakelocks**: app partial wakelocks (filterable by audio/jobs/sync/alarms/location, held locks marked), kernel wakelocks, and wakeup reasons.
 - **Radios**: cellular drain split into app traffic vs standby, cost per MB, signal-strength and network-type breakdowns, which apps keep the modem awake, plus Wi-Fi, Bluetooth scanning, and GPS.
 - **Apps**: per-UID power estimates with foreground/background split, jobs, wakeup alarms, wakelocks, and network use. UIDs are resolved to app names, including shared and system UIDs.
-- **Snapshots**: tap + to save a baseline (say, before bed), then pick it from the title menu to see only what happened since.
-- **Background checks** (off by default, in Settings): every few hours Wattdog diffs the stats against its previous check and notifies about new or worsening findings (warnings and above) from that window, with buttons for the relevant screen or system setting. The same finding won't notify again for 12 hours unless it gets worse. If Shizuku stops (for example after a reboot) and checks keep failing, you get one quiet notice.
+- **Time windows**: the title menu switches between since unplugged, recent windows (last hour, last 3 or 6 hours, and overnight in the morning) built from automatic snapshots, and your own marks. Use **Mark now…** before a test, like switching to LTE, then pick the mark later to see only what happened since. Marks from before a charge are greyed out because the stats were reset.
+- **Background checks** (off by default, in Settings): every hour on battery Wattdog saves an automatic snapshot (kept for two days, and dropped once the stats reset), diffs the stats against one from about three hours earlier, and notifies about new or worsening findings (warnings and above) from that window, with buttons for the relevant screen or system setting. The same finding won't notify again for 12 hours unless it gets worse. If Shizuku stops (for example after a reboot) and checks keep failing, you get one quiet notice.
 
 ## Access
 
@@ -41,7 +41,7 @@ core/batterystats/   Pure Kotlin/JVM: models, parsers, metrics, anomaly rules, s
 app/                 Android app
   privileged/        Shizuku status + user service (AIDL), direct DUMP-permission path, dumpsys allowlist
   data/              Snapshot store, UID → app resolver, repository
-  alerts/            Background checks: WorkManager job, window checkpoint, notifications
+  alerts/            Background checks: WorkManager job, automatic snapshots, notifications
   ui/                Compose Material 3 screens
 ```
 

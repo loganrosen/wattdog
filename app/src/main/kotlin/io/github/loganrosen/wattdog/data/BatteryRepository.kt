@@ -30,6 +30,8 @@ data class Analysis(
     val power: PowerState?,
     val anomalies: List<Anomaly>,
     val capturedAtMillis: Long,
+    /** The interval the live dump belongs to, for telling which snapshots can still be compared. */
+    val session: StatsSession,
     private val labels: Map<AppUid, AppLabel>,
     private val resolver: UidResolver,
 ) {
@@ -69,7 +71,7 @@ class BatteryRepository(
         }
         // The delta drops unchanged per-UID blocks, so take package hints from the full dump.
         val labels = uids.associateWith { resolver.resolve(it, now.report.uids[it]?.packages.orEmpty()) }
-        Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), labels, resolver)
+        Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), StatsSession.of(now.report), labels, resolver)
     }
 
     /** Streams `--history`; it can be tens of megabytes, so it's fetched only when the History tab asks. */
