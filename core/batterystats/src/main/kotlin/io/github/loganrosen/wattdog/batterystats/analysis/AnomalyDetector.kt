@@ -15,6 +15,7 @@ enum class Severity { INFO, WARNING, CRITICAL }
 enum class AnomalyKind {
     STUCK_AUDIO_WAKELOCK,
     LONG_WAKELOCK,
+    PHANTOM_WAKELOCK,
     HEAVY_JOBS,
     FREQUENT_ALARM,
     CELLULAR_STANDBY,
@@ -73,15 +74,35 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
 
     fun detect(report: BatteryStatsReport, power: PowerState? = null): List<Anomaly> = buildList {
         val metrics = DrainMetrics.from(report)
-        val heldNow = power?.wakeLocks
-            ?.filter { it.type == "PARTIAL_WAKE_LOCK" }
-            ?.flatMap { lock -> lock.blamedUids.map { it to lock.tag } }
-            ?.toSet()
-            .orEmpty()
-        fun PartialWakelock.activeNow() = (uid to tag) in heldNow
+        val phantoms = PhantomWakelocks(report, power)
+        fun PartialWakelock.activeNow() = phantoms.isHeldNow(this)
+
+        val (phantom, real) = report.partialWakelocks.partition { phantoms.isPhantom(it) }
+        phantom.filter { it.total >= t.audioWakelockMin }.forEach { wl ->
+            val why = when (phantoms.reason(wl)) {
+                PhantomWakelocks.Reason.EXCEEDS_AWAKE_TIME ->
+                    "longer than the CPU was even awake with the screen off (${report.screenOff.uptime.formatShort()})"
+
+                else -> "but Android's power manager isn't holding it"
+            }
+            add(
+                Anomaly(
+                    kind = AnomalyKind.PHANTOM_WAKELOCK,
+                    severity = Severity.INFO,
+                    title = "Phantom ${wl.tag.take(60)} wakelock",
+                    detail = "Battery stats say this has been held for ${wl.total.formatShort()}, $why. " +
+                        "The timer is stuck in Android's bookkeeping; nothing is actually keeping the phone awake.",
+                    advice = "No real drain, so nothing to fix. Restarting the phone clears it. Until then, " +
+                        "battery screens (including Android's own) may overstate this app's usage.",
+                    actions = listOf(SuggestedAction.ShowWakelocks(wl.uid, wl.tag, wl.kind)),
+                    uid = wl.uid,
+                    subject = wl.tag,
+                ),
+            )
+        }
 
         val audioPlayback = report.globalComponent("audio")?.duration ?: Duration.ZERO
-        val (audio, other) = report.partialWakelocks.partition { it.kind == WakelockKind.AUDIO }
+        val (audio, other) = real.partition { it.kind == WakelockKind.AUDIO }
 
         audio.filter { maxOf(it.total, it.runningFor ?: Duration.ZERO) >= t.audioWakelockMin }
             .filter { it.total - audioPlayback >= t.audioUnexplainedMin }

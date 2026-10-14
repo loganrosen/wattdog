@@ -97,6 +97,35 @@ class AnomalyDetectorTest {
     }
 
     @Test
+    fun `held wakelock that dumpsys power doesn't have is a phantom`() {
+        val report = Fixtures.report.copy(
+            partialWakelocks = listOf(PartialWakelock(AppUid(10316), "AudioMix", 1.hours, 0, runningFor = 1.hours)),
+        )
+        val anomalies = AnomalyDetector().detect(report, Fixtures.power.copy(wakeLocks = emptyList()))
+        val phantom = anomalies.single { it.kind == AnomalyKind.PHANTOM_WAKELOCK }
+        assertEquals(Severity.INFO, phantom.severity)
+        assertFalse(phantom.activeNow)
+        assertTrue(anomalies.none { it.kind == AnomalyKind.STUCK_AUDIO_WAKELOCK })
+    }
+
+    @Test
+    fun `wakelock longer than screen-off uptime is a phantom even without a power dump`() {
+        val report = Fixtures.report.copy(
+            partialWakelocks = listOf(PartialWakelock(AppUid(10301), "SomeLock", 6.hours, 0, runningFor = 6.hours)),
+        )
+        val anomalies = AnomalyDetector().detect(report)
+        assertEquals(AppUid(10301), anomalies.single { it.kind == AnomalyKind.PHANTOM_WAKELOCK }.uid)
+        assertTrue(anomalies.none { it.kind == AnomalyKind.LONG_WAKELOCK })
+    }
+
+    @Test
+    fun `lock held since before a delta window is not a phantom`() {
+        val wl = PartialWakelock(AppUid(10250), "AudioMix", 30.minutes, 0, runningFor = 20.hours)
+        val report = Fixtures.report.copy(partialWakelocks = listOf(wl))
+        assertFalse(PhantomWakelocks(report, Fixtures.power).isPhantom(wl))
+    }
+
+    @Test
     fun `sorted by severity`() {
         assertEquals(anomalies.sortedByDescending { it.severity }.map { it.severity }, anomalies.map { it.severity })
     }

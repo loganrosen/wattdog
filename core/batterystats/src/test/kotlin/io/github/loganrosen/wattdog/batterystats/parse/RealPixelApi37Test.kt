@@ -2,8 +2,10 @@ package io.github.loganrosen.wattdog.batterystats.parse
 
 import io.github.loganrosen.wattdog.batterystats.Fixtures
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyDetector
+import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyKind
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.RadioAttribution
+import io.github.loganrosen.wattdog.batterystats.analysis.Severity
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
 import kotlin.test.Test
@@ -115,6 +117,17 @@ class RealPixelApi37Test {
         val anomalies = AnomalyDetector().detect(r, Fixtures.Real.pixelApi37Power)
         assertTrue(anomalies.isNotEmpty())
         assertTrue(anomalies.all { it.advice.isNotBlank() && it.actions.isNotEmpty() })
+    }
+
+    @Test
+    fun `stuck Messenger AudioMix timer is reported as a phantom, not drain`() {
+        for (power in listOf(Fixtures.Real.pixelApi37Power, null)) {
+            val anomalies = AnomalyDetector().detect(r, power)
+            val phantom = anomalies.single { it.kind == AnomalyKind.PHANTOM_WAKELOCK }
+            assertEquals(AppUid(10316), phantom.uid)
+            assertEquals(Severity.INFO, phantom.severity)
+            assertTrue(anomalies.none { it.kind == AnomalyKind.STUCK_AUDIO_WAKELOCK && it.uid == AppUid(10316) })
+        }
     }
 
     @Test

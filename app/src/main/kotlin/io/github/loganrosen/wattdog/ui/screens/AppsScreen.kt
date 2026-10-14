@@ -94,13 +94,13 @@ private fun AppCard(
                 fraction = fraction,
                 subtitle = (label.primaryPackage ?: app.uid.format()).let { if (label.isSystem) "$it · system" else it },
             )
-            if (expanded) Details(app, detail, wakelocks)
+            if (expanded) Details(app, detail, wakelocks, analysis)
         }
     }
 }
 
 @Composable
-private fun Details(app: UidPower, detail: UidDetail?, wakelocks: List<PartialWakelock>) {
+private fun Details(app: UidPower, detail: UidDetail?, wakelocks: List<PartialWakelock>, analysis: Analysis) {
     HorizontalDivider(Modifier.padding(vertical = 4.dp))
     StatRow("UID", app.uid.format())
     StatRow("Foreground", formatMah(app.foregroundMah))
@@ -137,10 +137,16 @@ private fun Details(app: UidPower, detail: UidDetail?, wakelocks: List<PartialWa
     if (wakelocks.isNotEmpty()) {
         Subhead("Wakelocks")
         wakelocks.sortedByDescending { it.total }.take(10).forEach {
+            val phantom = analysis.phantoms.isPhantom(it)
+            val held = it.isHeld && !phantom
             StatRow(
                 it.tag,
-                "${it.total.formatShort()} · ${it.count}×" + if (it.isHeld) " · held" else "",
-                emphasis = if (it.isHeld) MaterialTheme.colorScheme.error else null,
+                "${it.total.formatShort()} · ${it.count}×" + when {
+                    phantom -> " · phantom"
+                    held -> " · held"
+                    else -> ""
+                },
+                emphasis = if (held) MaterialTheme.colorScheme.error else null,
             )
         }
     }

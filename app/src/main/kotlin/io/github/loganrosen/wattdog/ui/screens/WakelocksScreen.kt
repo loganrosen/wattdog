@@ -113,6 +113,7 @@ private fun PartialList(items: List<PartialWakelock>, analysis: Analysis, focus:
         if (items.isEmpty()) item { EmptyNote("No partial wakelocks in this period.") }
         items(items, key = { "${it.uid.raw}/${it.tag}" }) { wl ->
             val heldFor = wl.runningFor
+            val phantom = analysis.phantoms.isPhantom(wl)
             BarRow(
                 modifier = if (wl.focused()) {
                     Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(8.dp)).padding(8.dp)
@@ -125,10 +126,15 @@ private fun PartialList(items: List<PartialWakelock>, analysis: Analysis, focus:
                 subtitle = buildString {
                     append(analysis.label(wl.uid).label)
                     if (wl.count > 0) append(" · ${wl.count}×")
-                    if (heldFor != null) append(" · held for ${heldFor.formatShort()}")
+                    if (phantom) {
+                        append(" · stuck stats timer, not real drain")
+                    } else if (heldFor != null) {
+                        append(" · held for ${heldFor.formatShort()}")
+                    }
                 },
                 badge = {
                     when {
+                        phantom -> Badge("PHANTOM", MaterialTheme.colorScheme.outline)
                         wl.isHeld -> Badge("HELD", MaterialTheme.colorScheme.error)
                         wl.kind != WakelockKind.OTHER -> Badge(wl.kind.label().uppercase(), MaterialTheme.colorScheme.secondary)
                     }
