@@ -9,7 +9,13 @@ import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
  * The first action in [Anomaly.actions] is the primary one.
  */
 sealed interface SuggestedAction {
-    data class ShowWakelocks(val uid: AppUid? = null, val tag: String? = null, val kind: WakelockKind? = null) : SuggestedAction
+    data class ShowWakelocks(
+        val uid: AppUid? = null,
+        val tag: String? = null,
+        val kind: WakelockKind? = null,
+        /** Open the hardware wakeup reasons instead of app wakelocks. */
+        val wakeupReasons: Boolean = false,
+    ) : SuggestedAction
     data class ShowApp(val uid: AppUid) : SuggestedAction
     data object ShowApps : SuggestedAction
     data object ShowRadios : SuggestedAction

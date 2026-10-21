@@ -12,22 +12,35 @@ import io.github.loganrosen.wattdog.data.Analysis
 
 /** Where an in-app CTA lands, and what that screen should scroll to and highlight. */
 sealed interface Focus {
-    data class Wakelocks(val uid: AppUid?, val tag: String?, val kind: WakelockKind?) : Focus
+    data class Wakelocks(val uid: AppUid?, val tag: String?, val kind: WakelockKind?, val wakeupReasons: Boolean = false) : Focus
     data class App(val uid: AppUid) : Focus
     data object Apps : Focus
     data object Radios : Focus
 }
 
 fun SuggestedAction.label(): String = when (this) {
-    is SuggestedAction.ShowWakelocks -> if (tag != null) "View wakelock" else "View wakelocks"
+    is SuggestedAction.ShowWakelocks -> when {
+        wakeupReasons -> "See what woke it"
+        tag != null -> "View wakelock"
+        else -> "View wakelocks"
+    }
+
     is SuggestedAction.ShowApp -> "App details"
+
     SuggestedAction.ShowApps -> "View apps"
+
     SuggestedAction.ShowRadios -> "View radios"
+
     is SuggestedAction.TakeSnapshot -> "Mark now"
+
     is SuggestedAction.OpenAppInfo -> "Open App info"
+
     is SuggestedAction.OpenAppBatteryUsage -> "App battery settings"
+
     SuggestedAction.OpenMobileNetworkSettings -> "Mobile network settings"
+
     SuggestedAction.OpenLockScreenSettings -> "Lock screen settings"
+
     SuggestedAction.OpenBluetoothSettings -> "Bluetooth settings"
 }
 
@@ -41,7 +54,7 @@ fun SuggestedAction.opensSettings(): Boolean = when (this) {
 }
 
 fun SuggestedAction.toFocus(): Focus? = when (this) {
-    is SuggestedAction.ShowWakelocks -> Focus.Wakelocks(uid, tag, kind)
+    is SuggestedAction.ShowWakelocks -> Focus.Wakelocks(uid, tag, kind, wakeupReasons)
     is SuggestedAction.ShowApp -> Focus.App(uid)
     SuggestedAction.ShowApps -> Focus.Apps
     SuggestedAction.ShowRadios -> Focus.Radios

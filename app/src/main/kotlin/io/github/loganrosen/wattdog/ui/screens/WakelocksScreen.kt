@@ -54,7 +54,7 @@ fun WakelocksScreen(analysis: Analysis, modifier: Modifier = Modifier, focus: Fo
 
     LaunchedEffect(focus) {
         if (focus != null) {
-            view = WakelockView.PARTIAL
+            view = if (focus.wakeupReasons) WakelockView.WAKEUP else WakelockView.PARTIAL
             kind = focus.kind
         }
     }
