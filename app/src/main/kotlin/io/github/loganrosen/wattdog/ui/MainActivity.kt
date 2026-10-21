@@ -39,5 +39,6 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Picks up Shizuku being started, or a DUMP grant made over adb while we were backgrounded.
         viewModel.recheckAccess()
+        viewModel.refreshIfStale()
     }
 }

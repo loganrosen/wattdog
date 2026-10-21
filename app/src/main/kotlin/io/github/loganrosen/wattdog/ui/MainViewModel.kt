@@ -98,6 +98,13 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     fun recheckAccess() = container.access.refresh()
 
+    /** Re-reads stats when coming back to the app, unless the last read is recent. */
+    fun refreshIfStale(nowMillis: Long = System.currentTimeMillis()) {
+        val l = load.value
+        val analysis = l.analysis ?: return
+        if (!l.loading && nowMillis - analysis.capturedAtMillis >= STALE_AFTER_MILLIS) refresh()
+    }
+
     fun requestShizukuPermission() = container.access.requestShizukuPermission()
 
     fun shizukuLaunchIntent() = container.access.shizukuLaunchIntent()
@@ -179,6 +186,10 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun messageShown() = load.update { it.copy(message = null) }
+
+    private companion object {
+        const val STALE_AFTER_MILLIS = 60_000L
+    }
 
     private fun describe(e: Exception): String = when (e) {
         is DumpPermissionDeniedException ->

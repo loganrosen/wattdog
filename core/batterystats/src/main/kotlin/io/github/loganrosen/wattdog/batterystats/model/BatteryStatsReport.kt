@@ -171,6 +171,8 @@ data class UidDetail(
     val mobileRadioActiveCount: Int = 0,
     val bluetoothScanActual: Duration = Duration.ZERO,
     val bluetoothScanBackground: Duration = Duration.ZERO,
+    /** Unfiltered, non-opportunistic scans: the radio reports every nearby device rather than a few known ones. */
+    val bluetoothScanUnoptimized: Duration = Duration.ZERO,
     val jobs: List<JobStat> = emptyList(),
     val wakeupAlarms: List<AlarmStat> = emptyList(),
     val packages: List<String> = emptyList(),

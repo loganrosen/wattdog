@@ -4,6 +4,7 @@ import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.BatteryStatsReport
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
 import io.github.loganrosen.wattdog.batterystats.model.PowerState
+import io.github.loganrosen.wattdog.batterystats.model.UidDetail
 import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
@@ -68,6 +69,7 @@ data class AnomalyThresholds(
     val ambientDisplayShare: Double = 0.30,
     val ambientDisplayMinMah: Int = 100,
     val bluetoothScanRatio: Double = 0.90,
+    val bluetoothAppBackgroundMin: Duration = 30.minutes,
     val wifiMulticastMin: Duration = 1.hours,
     val minScreenOff: Duration = 1.hours,
 )
@@ -207,18 +209,24 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                 for (alarm in detail.wakeupAlarms) {
                     val perHour = alarm.count / hoursOnBattery
                     if (alarm.count >= t.alarmMinCount && perHour >= t.alarmsPerHour) {
+                        val known = KnownAlarms.lookup(alarm.tag)
+                        val rate = "${alarm.tag} fired ${alarm.count} times (%.1f/h).".format(perHour)
                         add(
                             Anomaly(
                                 kind = AnomalyKind.FREQUENT_ALARM,
-                                severity = Severity.WARNING,
+                                severity = if (known != null) Severity.INFO else Severity.WARNING,
                                 title = "Frequent wakeup alarm",
-                                detail = "${alarm.tag} fired ${alarm.count} times (%.1f/h).".format(perHour),
-                                advice = "Usually polling sync or reminders. Lower the app's sync frequency or " +
-                                    "restrict its battery usage if you don't need it that often.",
-                                actions = listOf(
-                                    SuggestedAction.ShowApp(detail.uid),
-                                    SuggestedAction.OpenAppBatteryUsage(detail.uid),
-                                ),
+                                detail = if (known != null) "$rate This is ${known.what}." else rate,
+                                advice = known?.advice ?: (
+                                    "Usually polling sync or reminders. Lower the app's sync " +
+                                        "frequency or restrict its battery usage if you don't need it that often."
+                                    ),
+                                actions = if (known != null) {
+                                    known.actions.ifEmpty { listOf(SuggestedAction.OpenAppInfo(detail.uid)) } +
+                                        SuggestedAction.ShowApp(detail.uid)
+                                } else {
+                                    listOf(SuggestedAction.ShowApp(detail.uid), SuggestedAction.OpenAppBatteryUsage(detail.uid))
+                                },
                                 uid = detail.uid,
                                 subject = alarm.tag,
                             ),
@@ -322,40 +330,30 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                 Anomaly(
                     kind = AnomalyKind.AMBIENT_DISPLAY,
                     severity = Severity.INFO,
-                    title = "Always-on display is a large share of standby",
-                    detail = "${doze.screenDozeMah} mAh (${formatPercent(aodShare)} of screen-off drain) over " +
-                        "${doze.screenDoze.formatShort()} of ambient display.",
-                    advice = "Take a snapshot, turn off \u201cAlways show time and info\u201d in lock screen " +
-                        "settings for a day, and compare.",
+                    title = "Much of standby drain happened during always-on display",
+                    detail = "The battery dropped ${doze.screenDozeMah} mAh (${formatPercent(aodShare)} of screen-off drain) " +
+                        "during ${doze.screenDoze.formatShort()} of always-on display. That covers everything running " +
+                        "at the time, not just the display" +
+                        (
+                            if (doze.ambientDisplayMah >
+                                0
+                            ) {
+                                "; Android estimates the display itself at ${formatMah(doze.ambientDisplayMah)}."
+                            } else {
+                                "."
+                            }
+                            ),
+                    advice = "The only way to know what AOD really costs is to compare. Take a snapshot, turn off " +
+                        "\u201cAlways show time and info\u201d in lock screen settings for a similar day, and compare.",
                     actions = listOf(SuggestedAction.OpenLockScreenSettings, SuggestedAction.TakeSnapshot("Before AOD off")),
-                    cost = DrainCost.of(report, doze.screenDozeMah.toDouble(), DrainCost.Basis.MEASURED),
+                    cost = DrainCost.of(report, doze.ambientDisplayMah, DrainCost.Basis.ESTIMATED),
                 ),
             )
         }
 
         val btRatio = radio.bluetoothScanRatio
         if (btRatio != null && btRatio >= t.bluetoothScanRatio && radio.bluetoothScan >= t.minScreenOff) {
-            val scanner = report.uids.values.maxByOrNull { it.bluetoothScanActual }?.takeIf { it.bluetoothScanActual.isPositive() }
-            add(
-                Anomaly(
-                    kind = AnomalyKind.BLUETOOTH_SCAN,
-                    severity = Severity.INFO,
-                    title = "Bluetooth scanning the whole time",
-                    detail = "BLE scan ran ${radio.bluetoothScan.formatShort()} (${formatPercent(btRatio)} of time on battery)." +
-                        (scanner?.let { " Top attributed scanner: ${it.uid} (${it.bluetoothScanActual.formatShort()})." } ?: ""),
-                    advice = "Usually wearables, trackers, car, or smart-home apps." +
-                        if (scanner != null) " If the app below doesn't need it, remove its Nearby devices permission in App info." else "",
-                    actions = listOfNotNull(
-                        scanner?.let { SuggestedAction.OpenAppInfo(it.uid) },
-                        scanner?.let { SuggestedAction.ShowApp(it.uid) },
-                        SuggestedAction.OpenBluetoothSettings,
-                    ),
-                    uid = scanner?.uid,
-                    cost = report.globalComponent("bluetooth")?.let {
-                        DrainCost.of(report, it.totalMah, DrainCost.Basis.ESTIMATED)
-                    },
-                ),
-            )
+            add(bluetoothScan(report, radio, btRatio))
         }
 
         if (report.wifiMulticastWakelock >= t.wifiMulticastMin) {
@@ -376,4 +374,49 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
             .thenByDescending { it.activeNow }
             .thenByDescending { it.cost?.takeIf { c -> c.basis != DrainCost.Basis.NOT_REAL }?.mah ?: 0.0 },
     )
+
+    private fun bluetoothScan(report: BatteryStatsReport, radio: RadioAttribution, ratio: Double): Anomaly {
+        val scanners = report.uids.values.filter { it.bluetoothScanActual.isPositive() }
+        val (platform, apps) = scanners.partition { !it.uid.isApplication || it.isPlayServices() }
+        // Background time is what the user didn't ask for; foreground scans happen while they use the app.
+        val app = apps.maxByOrNull { it.bluetoothScanBackground }?.takeIf { it.bluetoothScanBackground >= t.bluetoothAppBackgroundMin }
+        val system = platform.maxByOrNull { it.bluetoothScanActual }?.takeIf { it.bluetoothScanActual >= radio.bluetoothScan * 0.9 }
+        val cost = report.globalComponent("bluetooth")?.let { DrainCost.of(report, it.totalMah, DrainCost.Basis.ESTIMATED) }
+        val detail = buildString {
+            append("Bluetooth was scanning for ${radio.bluetoothScan.formatShort()} (${formatPercent(ratio)} of time on battery).")
+            app?.let {
+                append(" The app below scanned in the background for ${it.bluetoothScanBackground.formatShort()}")
+                if (it.bluetoothScanUnoptimized.isPositive()) append(", plus ${it.bluetoothScanUnoptimized.formatShort()} unfiltered")
+                append(".")
+            }
+            system?.let {
+                append(" Android itself kept a")
+                if (!it.bluetoothScanUnoptimized.isPositive()) append(" filtered")
+                append(" scan running, which connected devices, Find My Device, and Quick Share rely on.")
+            }
+            if (cost == null) append(" Android doesn't estimate what scanning costs on this phone.")
+        }
+        return Anomaly(
+            kind = AnomalyKind.BLUETOOTH_SCAN,
+            severity = Severity.INFO,
+            title = "Bluetooth scanning the whole time",
+            detail = detail,
+            advice = if (app != null) {
+                "Usually a wearable, tracker, car, or smart-home app looking for its device. If this app doesn't " +
+                    "need to do that in the background, remove its Nearby devices permission or restrict its battery usage."
+            } else {
+                "Android's own services are doing the scanning, so there's no app to restrict. Turning Bluetooth " +
+                    "off stops it, but also disconnects your devices."
+            },
+            actions = if (app != null) {
+                listOf(SuggestedAction.OpenAppInfo(app.uid), SuggestedAction.ShowApp(app.uid), SuggestedAction.OpenBluetoothSettings)
+            } else {
+                listOf(SuggestedAction.OpenBluetoothSettings, SuggestedAction.ShowApps)
+            },
+            uid = app?.uid,
+            cost = cost,
+        )
+    }
+
+    private fun UidDetail.isPlayServices() = packages.any { it == "com.google.android.gms" }
 }

@@ -120,6 +120,13 @@ private fun Details(app: UidPower, detail: UidDetail?, wakelocks: List<PartialWa
         }
         if (detail.bluetoothScanActual.isPositive()) {
             StatRow("Bluetooth scan", detail.bluetoothScanActual.formatShort())
+            StatRow("Bluetooth scan in background", detail.bluetoothScanBackground.formatShort())
+            if (detail.bluetoothScanUnoptimized.isPositive()) {
+                StatRow(
+                    "Unfiltered Bluetooth scan",
+                    detail.bluetoothScanUnoptimized.formatShort(),
+                )
+            }
         }
         if (detail.jobs.isNotEmpty()) {
             Subhead("Jobs")

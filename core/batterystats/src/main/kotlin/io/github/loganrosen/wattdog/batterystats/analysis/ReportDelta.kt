@@ -219,6 +219,7 @@ object ReportDelta {
             mobileRadioActiveCount = mobileRadioActiveCount.minusClamped(o.mobileRadioActiveCount),
             bluetoothScanActual = bluetoothScanActual.minusClamped(o.bluetoothScanActual),
             bluetoothScanBackground = bluetoothScanBackground.minusClamped(o.bluetoothScanBackground),
+            bluetoothScanUnoptimized = bluetoothScanUnoptimized.minusClamped(o.bluetoothScanUnoptimized),
             jobs = jobs,
             wakeupAlarms = alarms,
             packages = packages,

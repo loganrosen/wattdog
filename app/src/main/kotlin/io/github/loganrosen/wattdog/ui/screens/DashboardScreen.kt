@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
 import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
+import io.github.loganrosen.wattdog.batterystats.analysis.DrainCoverage
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
@@ -195,6 +196,7 @@ private fun DrainCard(drain: DrainMetrics, analysis: Analysis) {
 private fun TopDrainersCard(analysis: Analysis) {
     val top = remember(analysis) { analysis.report.uidPower.sortedByDescending { it.totalMah }.take(8) }
     val components = remember(analysis) { analysis.report.globalPower.sortedByDescending { it.totalMah }.take(6) }
+    val coverage = remember(analysis) { DrainCoverage.from(analysis.report) }
     SectionCard("Top drain contributors") {
         if (top.isEmpty()) EmptyNote("No per-app power estimates in this period.")
         val max = top.firstOrNull()?.totalMah ?: 0.0
@@ -219,8 +221,23 @@ private fun TopDrainersCard(analysis: Analysis) {
                     subtitle = c.appsMah?.let { "${formatMah(it)} attributed to apps" },
                 )
             }
+            coverage?.takeIf { it.unexplainedMah >= 1 }?.let { UnexplainedRow(it, maxC) }
         }
     }
+}
+
+@Composable
+private fun UnexplainedRow(coverage: DrainCoverage, maxComponentMah: Double) {
+    val split = listOfNotNull(
+        coverage.screenOn?.let { "screen on ${formatMah(it.unexplainedMah)}" },
+        coverage.screenOff?.let { "screen off ${formatMah(it.unexplainedMah)}" },
+    ).joinToString(" · ")
+    BarRow(
+        title = "Not explained by these estimates",
+        value = formatMah(coverage.unexplainedMah) + (coverage.unexplainedShare?.let { " (${formatPercent(it)})" } ?: ""),
+        fraction = if (maxComponentMah > 0) (coverage.unexplainedMah / maxComponentMah).coerceAtMost(1.0).toFloat() else 0f,
+        subtitle = "Measured drain minus Android's component estimates" + if (split.isNotEmpty()) ". $split" else "",
+    )
 }
 
 @Composable
@@ -233,8 +250,9 @@ private fun DozeCard(doze: DozeSummary) {
         StatRow("Light doze", doze.lightIdle.formatShort())
         HorizontalDivider()
         StatRow("Screen doze (AOD)", doze.screenDoze.formatShort())
-        StatRow("AOD drain", "${doze.screenDozeMah} mAh" + (doze.screenDozeMahPerHour?.let { " · ${rate(it)}" } ?: ""))
-        doze.screenDozeShareOfScreenOffMah?.let { StatRow("AOD share of screen-off drain", formatPercent(it)) }
+        StatRow("Drain during AOD", "${doze.screenDozeMah} mAh" + (doze.screenDozeMahPerHour?.let { " · ${rate(it)}" } ?: ""))
+        doze.screenDozeShareOfScreenOffMah?.let { StatRow("Share of screen-off drain", formatPercent(it)) }
+        if (doze.ambientDisplayMah > 0) StatRow("AOD display itself (estimate)", formatMah(doze.ambientDisplayMah))
     }
 }
 

@@ -55,12 +55,17 @@ data class RadioAttribution(
     val cellularAppsMah: Double,
     /** Modem cost not blamed on any UID: registration, paging, signal hunting. */
     val cellularStandbyMah: Double,
+    /** The connectivity summary's "Cellular Battery drain", a separate estimate from modem activity counters. */
+    val cellularControllerMah: Double?,
+    /** The modem's activity counters add up to more time than elapsed, so [cellularControllerMah] is meaningless. */
+    val cellularCountersBroken: Boolean,
     val cellularBytes: Long,
     val mahPerMb: Double?,
     val poorSignalRatio: Double?,
     val outOfServiceRatio: Double?,
     val radioAccessTech: Map<String, Duration>,
     val wifiDrainMah: Double,
+    val wifiAppsMah: Double?,
     val wifiBytes: Long,
     val bluetoothScan: Duration,
     val bluetoothScanRatio: Double?,
@@ -68,29 +73,66 @@ data class RadioAttribution(
     companion object {
         private val poorBuckets = setOf("none", "very poor", "poor")
 
+        /** Slack for rounding between the counters and the on-battery clock. */
+        private const val COUNTER_TOLERANCE = 1.05
+
         fun from(report: BatteryStatsReport): RadioAttribution {
+            val cell = report.cellular
             val component = report.globalComponent("mobile_radio")
-            val drain = report.cellular.drainMah ?: component?.totalMah ?: 0.0
-            val appsMah = component?.appsMah ?: 0.0
-            val bytes = report.cellular.totalBytes
-            val signalTotal = report.cellular.signalStrength.values.fold(Duration.ZERO, Duration::plus)
-            val poor = report.cellular.signalStrength.filterKeys { it in poorBuckets }.values.fold(Duration.ZERO, Duration::plus)
-            val ratTotal = report.cellular.radioAccessTech.values.fold(Duration.ZERO, Duration::plus)
+            // Prefer the power model's total so it matches the apps/standby split and the
+            // component list. The connectivity summary's figure comes from a different estimator.
+            val drain = component?.totalMah ?: cell.drainMah ?: 0.0
+            val bytes = cell.totalBytes
+            val signalTotal = cell.signalStrength.values.fold(Duration.ZERO, Duration::plus)
+            val poor = cell.signalStrength.filterKeys { it in poorBuckets }.values.fold(Duration.ZERO, Duration::plus)
+            val ratTotal = cell.radioAccessTech.values.fold(Duration.ZERO, Duration::plus)
+            val elapsed = report.onBattery.realtime
+            val modemStates = cell.sleep + cell.idle + cell.rx
+            val wifi = report.globalComponent("wifi")
             return RadioAttribution(
                 cellularDrainMah = drain,
-                cellularAppsMah = appsMah,
-                // Use the power model's own total so apps + standby add up; the connectivity
-                // summary's "Cellular Battery drain" comes from a different estimator.
+                cellularAppsMah = component?.appsMah ?: 0.0,
                 cellularStandbyMah = component?.unattributedMah ?: drain,
+                cellularControllerMah = cell.drainMah,
+                cellularCountersBroken = elapsed.isPositive() &&
+                    (cell.rx > elapsed * COUNTER_TOLERANCE || modemStates > elapsed * COUNTER_TOLERANCE),
                 cellularBytes = bytes,
                 mahPerMb = if (bytes > 0) drain / (bytes / BYTES_PER_MB) else null,
                 poorSignalRatio = ratio(poor, signalTotal),
-                outOfServiceRatio = ratio(report.cellular.radioAccessTech["oos"] ?: Duration.ZERO, ratTotal),
-                radioAccessTech = report.cellular.radioAccessTech,
-                wifiDrainMah = report.wifi.drainMah ?: report.globalComponent("wifi")?.totalMah ?: 0.0,
+                outOfServiceRatio = ratio(cell.radioAccessTech["oos"] ?: Duration.ZERO, ratTotal),
+                radioAccessTech = cell.radioAccessTech,
+                wifiDrainMah = wifi?.totalMah ?: report.wifi.drainMah ?: 0.0,
+                wifiAppsMah = wifi?.appsMah,
                 wifiBytes = report.wifi.totalBytes,
                 bluetoothScan = report.bluetoothScan,
                 bluetoothScanRatio = ratio(report.bluetoothScan, report.onBattery.realtime),
+            )
+        }
+    }
+}
+
+/**
+ * Measured discharge versus what Android's power model accounts for. The gap is drain that no
+ * exposed component explains: hardware the model doesn't cover, or components it underestimates.
+ */
+data class DrainCoverage(val measuredMah: Int, val modeledMah: Double, val screenOn: Part?, val screenOff: Part?) {
+    data class Part(val measuredMah: Int, val modeledMah: Double) {
+        val unexplainedMah: Double get() = (measuredMah - modeledMah).coerceAtLeast(0.0)
+    }
+
+    val unexplainedMah: Double get() = (measuredMah - modeledMah).coerceAtLeast(0.0)
+    val unexplainedShare: Double? get() = measuredMah.takeIf { it > 0 }?.let { unexplainedMah / it }
+
+    companion object {
+        fun from(report: BatteryStatsReport): DrainCoverage? {
+            if (report.globalPower.isEmpty() || report.discharge.totalMah <= 0) return null
+            val modeled = report.globalPower.sumOf { it.totalMah }
+            val off = report.globalPowerScreenOff.takeIf { it.isNotEmpty() }?.sumOf { it.totalMah }
+            return DrainCoverage(
+                measuredMah = report.discharge.totalMah,
+                modeledMah = modeled,
+                screenOn = off?.let { Part(report.discharge.screenOnMah, (modeled - it).coerceAtLeast(0.0)) },
+                screenOff = off?.let { Part(report.discharge.screenOffMah, it) },
             )
         }
     }

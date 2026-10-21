@@ -19,6 +19,11 @@ object Fixtures {
     object Real {
         val pixelApi37: BatteryStatsReport by lazy { BatteryStatsParser.parse(text("real/pixel9-api37-charged.txt.gz")) }
         val pixelApi37Power: PowerState by lazy { PowerDumpParser.parse(text("real/pixel9-api37-power.txt.gz")) }
+
+        /** Same phone, 12.5 h on battery, with modem activity counters that add up to more than elapsed time. */
+        val pixelApi37ModemGlitch: BatteryStatsReport by lazy {
+            BatteryStatsParser.parse(text("real/pixel9-api37-modem-glitch-charged.txt.gz"))
+        }
         val emulatorApi34: BatteryStatsReport by lazy { BatteryStatsParser.parse(text("real/emulator-api34-charged.txt.gz")) }
         val emulatorApi34Power: PowerState by lazy { PowerDumpParser.parse(text("real/emulator-api34-power.txt.gz")) }
     }

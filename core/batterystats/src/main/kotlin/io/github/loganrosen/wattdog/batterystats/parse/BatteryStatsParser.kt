@@ -87,6 +87,7 @@ object BatteryStatsParser {
         var radioActiveCount = 0
         var btActual = Duration.ZERO
         var btBackground = Duration.ZERO
+        var btUnoptimized = Duration.ZERO
         val jobs = mutableListOf<JobStat>()
         val alarms = mutableListOf<AlarmStat>()
         val packages = mutableListOf<String>()
@@ -102,6 +103,7 @@ object BatteryStatsParser {
             mobileRadioActiveCount = radioActiveCount,
             bluetoothScanActual = btActual,
             bluetoothScanBackground = btBackground,
+            bluetoothScanUnoptimized = btUnoptimized,
             jobs = jobs.toList(),
             wakeupAlarms = alarms.toList(),
             packages = packages.toList(),
@@ -463,6 +465,9 @@ object BatteryStatsParser {
 
                 content.startsWith("Bluetooth Scan (background realtime): ") ->
                     b.btBackground = durationAfterFirstColon(content)
+
+                content.startsWith("Unoptimized Bluetooth Scan (realtime): ") ->
+                    b.btUnoptimized = durationAfterFirstColon(content)
 
                 content.startsWith("Job ") -> jobRegex.find(content)?.let { m ->
                     b.jobs += JobStat(

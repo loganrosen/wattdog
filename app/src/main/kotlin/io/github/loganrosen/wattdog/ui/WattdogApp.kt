@@ -294,7 +294,8 @@ private fun BaselinePicker(ui: BaselinePickerUi, modifier: Modifier = Modifier) 
                     overflow = TextOverflow.Ellipsis,
                 )
                 ui.windowLength?.let {
-                    Text("${it.formatShort()} on battery", style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                    val asOf = ui.analysis?.capturedAtMillis?.let { at -> " · as of ${clockTime(at, System.currentTimeMillis())}" } ?: ""
+                    Text("${it.formatShort()} on battery$asOf", style = MaterialTheme.typography.bodySmall, maxLines = 1)
                 }
             }
             Icon(Icons.Default.ArrowDropDown, null)

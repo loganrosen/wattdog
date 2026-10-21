@@ -37,7 +37,7 @@ fun RadiosScreen(analysis: Analysis, modifier: Modifier = Modifier) {
         item { CellularCard(radio, report) }
         item { MobileAppsCard(analysis) }
         item { WifiCard(radio, report) }
-        item { OtherRadiosCard(radio, report) }
+        item { OtherRadiosCard(radio, analysis) }
     }
 }
 
@@ -57,6 +57,16 @@ private fun CellularCard(radio: RadioAttribution, report: BatteryStatsReport) {
         )
         StatRow("Data transferred", formatBytes(radio.cellularBytes))
         radio.mahPerMb?.let { StatRow("Cost per MB", "%.2f mAh".format(it)) }
+        radio.cellularControllerMah?.let { controller ->
+            if (radio.cellularCountersBroken) {
+                EmptyNote(
+                    "The modem's own estimate (${formatMah(controller)}) is left out: its activity counters add up " +
+                        "to more time than has passed, so they can't be trusted on this phone.",
+                )
+            } else {
+                StatRow("Modem's own estimate", formatMah(controller))
+            }
+        }
         StatRow("Radio active", report.cellular.kernelActive.formatShort())
         radio.poorSignalRatio?.let { StatRow("Poor or no signal", formatPercent(it)) }
         radio.outOfServiceRatio?.let { StatRow("Out of service", formatPercent(it)) }
@@ -97,6 +107,8 @@ private fun MobileAppsCard(analysis: Analysis) {
 private fun WifiCard(radio: RadioAttribution, report: BatteryStatsReport) {
     SectionCard("Wi-Fi") {
         StatRow("Drain", formatMah(radio.wifiDrainMah))
+        radio.wifiAppsMah?.let { StatRow("Used by apps' traffic", formatMah(it)) }
+        report.wifi.drainMah?.let { StatRow("Wi-Fi chip's own estimate", formatMah(it)) }
         StatRow("Data transferred", formatBytes(radio.wifiBytes))
         StatRow("Active", report.wifi.kernelActive.formatShort())
         StatRow("Scanning", report.wifi.scan.formatShort())
@@ -105,13 +117,31 @@ private fun WifiCard(radio: RadioAttribution, report: BatteryStatsReport) {
 }
 
 @Composable
-private fun OtherRadiosCard(radio: RadioAttribution, report: BatteryStatsReport) {
+private fun OtherRadiosCard(radio: RadioAttribution, analysis: Analysis) {
+    val scanners = remember(analysis) {
+        analysis.report.uids.values.filter { it.bluetoothScanActual.isPositive() }
+            .sortedByDescending { it.bluetoothScanActual }.take(6)
+    }
     SectionCard("Bluetooth & GPS") {
         StatRow(
             "Bluetooth scanning",
             radio.bluetoothScan.formatShort() + (radio.bluetoothScanRatio?.let { " (${formatPercent(it)})" } ?: ""),
         )
-        report.gpsDrainMah?.let { StatRow("GPS drain", formatMah(it)) }
+        if (scanners.isNotEmpty()) {
+            val max = scanners.first().bluetoothScanActual.toDouble(DurationUnit.MILLISECONDS)
+            scanners.forEach { u ->
+                BarRow(
+                    title = analysis.label(u.uid).label,
+                    value = u.bluetoothScanActual.formatShort(),
+                    fraction = if (max > 0) (u.bluetoothScanActual.toDouble(DurationUnit.MILLISECONDS) / max).toFloat() else 0f,
+                    subtitle = listOfNotNull(
+                        "${u.bluetoothScanBackground.formatShort()} in background",
+                        u.bluetoothScanUnoptimized.takeIf { it.isPositive() }?.let { "${it.formatShort()} unfiltered" },
+                    ).joinToString(" · "),
+                )
+            }
+        }
+        analysis.report.gpsDrainMah?.let { StatRow("GPS drain", formatMah(it)) }
     }
 }
 

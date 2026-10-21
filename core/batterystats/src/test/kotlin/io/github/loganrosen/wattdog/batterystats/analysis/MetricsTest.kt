@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.batterystats.analysis
 import io.github.loganrosen.wattdog.batterystats.Fixtures
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.time.Duration.Companion.hours
 
 class MetricsTest {
@@ -23,10 +24,14 @@ class MetricsTest {
     @Test
     fun `radio attribution separates standby from app traffic`() {
         val radio = RadioAttribution.from(r)
-        assertEquals(250.0, radio.cellularDrainMah)
+        // The power model's total, so apps + standby add up; the connectivity summary's figure is kept separately.
+        assertEquals(260.0, radio.cellularDrainMah)
         assertEquals(40.0, radio.cellularAppsMah)
         assertEquals(220.0, radio.cellularStandbyMah)
-        assertEquals(250.0 / 12, radio.mahPerMb!!, 1e-9)
+        assertEquals(radio.cellularDrainMah, radio.cellularAppsMah + radio.cellularStandbyMah)
+        assertEquals(250.0, radio.cellularControllerMah)
+        assertFalse(radio.cellularCountersBroken)
+        assertEquals(260.0 / 12, radio.mahPerMb!!, 1e-9)
         assertEquals(0.5, radio.poorSignalRatio!!, 1e-9)
         assertEquals(0.1, radio.outOfServiceRatio!!, 1e-9)
         assertEquals(0.2, radio.bluetoothScanRatio!!, 1e-9)
