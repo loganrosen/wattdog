@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.data
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyDetector
 import io.github.loganrosen.wattdog.batterystats.analysis.DeltaResult
+import io.github.loganrosen.wattdog.batterystats.analysis.Diagnosis
 import io.github.loganrosen.wattdog.batterystats.analysis.PhantomWakelocks
 import io.github.loganrosen.wattdog.batterystats.analysis.ReportDelta
 import io.github.loganrosen.wattdog.batterystats.analysis.WakelockCosts
@@ -42,6 +43,8 @@ data class Analysis(
     val phantoms: PhantomWakelocks by lazy { PhantomWakelocks(report, power) }
 
     val wakelockCosts: WakelockCosts by lazy { WakelockCosts(report) }
+
+    val diagnosis: Diagnosis by lazy { Diagnosis.from(report, anomalies) { label(it).label } }
 }
 
 class StatsResetException(message: String) : IllegalStateException(message)

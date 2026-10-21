@@ -157,6 +157,9 @@ object ReportDelta {
                 components = u.components
                     .mapValues { (k, v) -> v.minusClamped(b?.components?.get(k) ?: 0.0) }
                     .filterValues { it > 0.0 },
+                screenOffComponents = u.screenOffComponents
+                    .mapValues { (k, v) -> v.minusClamped(b?.screenOffComponents?.get(k) ?: 0.0) }
+                    .filterValues { it > 0.0 },
             )
         }.sortedByDescending { it.totalMah }
     }

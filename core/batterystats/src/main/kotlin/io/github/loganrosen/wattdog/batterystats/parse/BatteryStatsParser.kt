@@ -342,6 +342,10 @@ object BatteryStatsParser {
                 if (!uidComponentsSeen && !content.startsWith("(")) {
                     currentUidPower = currentUidPower!!.copy(components = parseUidComponents(content))
                     uidComponentsSeen = true
+                } else if (content.startsWith("(on battery, screen off/doze)")) {
+                    currentUidPower = currentUidPower!!.copy(
+                        screenOffComponents = parseUidComponents(content.removePrefix("(on battery, screen off/doze)")),
+                    )
                 }
                 return
             }

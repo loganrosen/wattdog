@@ -7,12 +7,15 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
@@ -23,18 +26,28 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.Anomaly
+import io.github.loganrosen.wattdog.batterystats.analysis.Diagnosis
 import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCoverage
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
+import io.github.loganrosen.wattdog.batterystats.analysis.Severity
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
+import io.github.loganrosen.wattdog.batterystats.analysis.formatBatteryShare
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
 import io.github.loganrosen.wattdog.batterystats.analysis.formatPercent
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
@@ -54,6 +67,8 @@ fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, mod
     val report = analysis.report
     val drain = remember(report) { DrainMetrics.from(report) }
     val doze = remember(report) { DozeSummary.from(report) }
+    val diagnosis = analysis.diagnosis
+    var showDetails by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -61,10 +76,166 @@ fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, mod
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (analysis.power?.isPowered == true) item { ChargingNote() }
-        item { AnomaliesCard(analysis, onAction) }
-        item { DrainCard(drain, analysis) }
-        item { TopDrainersCard(analysis) }
-        item { DozeCard(doze) }
+        item { VerdictCard(diagnosis) }
+        item { CausesCard(diagnosis, analysis, onAction) }
+        if (diagnosis.idleBreakdown.isNotEmpty()) item { IdleBreakdownCard(diagnosis) }
+        if (diagnosis.topApps.isNotEmpty()) item { TopAppsCard(diagnosis, analysis) }
+        item {
+            TextButton(onClick = { showDetails = !showDetails }, Modifier.fillMaxWidth()) {
+                Icon(if (showDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
+                Text(if (showDetails) "Hide details" else "Show all findings and numbers")
+            }
+        }
+        if (showDetails) {
+            item { AnomaliesCard(analysis, onAction) }
+            item { DrainCard(drain, analysis) }
+            item { TopDrainersCard(analysis) }
+            item { DozeCard(doze) }
+        }
+    }
+}
+
+@Composable
+private fun Diagnosis.Level.color(): Color = when (this) {
+    Diagnosis.Level.GOOD -> MaterialTheme.colorScheme.primary
+    Diagnosis.Level.FAIR -> Severity.WARNING.color()
+    Diagnosis.Level.POOR -> MaterialTheme.colorScheme.error
+    Diagnosis.Level.TOO_EARLY -> MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+@Composable
+private fun VerdictCard(diagnosis: Diagnosis) {
+    val verdict = diagnosis.verdict
+    Card {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(
+                    when (verdict.level) {
+                        Diagnosis.Level.GOOD -> Icons.Default.CheckCircle
+                        Diagnosis.Level.TOO_EARLY -> Icons.Default.Info
+                        else -> Icons.Default.Warning
+                    },
+                    null,
+                    Modifier.size(32.dp),
+                    tint = verdict.level.color(),
+                )
+                Text(verdict.headline, style = MaterialTheme.typography.titleLarge)
+            }
+            Text(verdict.explanation, style = MaterialTheme.typography.bodyMedium)
+            if (diagnosis.inUse != null || diagnosis.idle != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    diagnosis.inUse?.let { PeriodTile("Using the phone", it, Modifier.weight(1f)) }
+                    diagnosis.idle?.let { PeriodTile("Screen off", it, Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeriodTile(label: String, period: Diagnosis.Period, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${formatBatteryShare(period.batteryShare)} of battery", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${period.duration.formatShort()} · ${"%.1f".format(period.percentPerHour)}%/h",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+    SectionCard("What's using your battery") {
+        if (diagnosis.causes.isEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                EmptyNote(
+                    if (diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY) {
+                        "Check back after the phone has been idle for a while."
+                    } else {
+                        "Nothing stands out. Your battery use looks normal."
+                    },
+                )
+            }
+        }
+        diagnosis.causes.forEachIndexed { i, cause ->
+            if (i > 0) HorizontalDivider()
+            CauseRow(cause, analysis, onAction)
+        }
+    }
+}
+
+@Composable
+private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+    var expanded by rememberSaveable(cause.title) { mutableStateOf(false) }
+    val action = remember(cause, analysis) { cause.action?.takeIf { it.isAvailable(analysis) } }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(cause.title, style = MaterialTheme.typography.titleMedium)
+        cause.cost?.ofBattery?.let {
+            Text(
+                "About ${formatBatteryShare(it)} of your battery",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(cause.summary, style = MaterialTheme.typography.bodyMedium)
+        cause.advice?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            action?.let { ActionButtons(listOf(it), onAction) }
+            if (cause.findings.isNotEmpty()) {
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Less" else "Why?") }
+            }
+        }
+        if (expanded) {
+            cause.findings.forEach { f ->
+                Column(Modifier.padding(start = 8.dp, top = 4.dp)) {
+                    Text(
+                        f.title + (f.uid?.let { " · ${analysis.label(it).label}" } ?: ""),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    Text(f.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IdleBreakdownCard(diagnosis: Diagnosis) {
+    SectionCard("Where power went with the screen off") {
+        diagnosis.idleBreakdown.forEach { share ->
+            BarRow(
+                title = share.area.label,
+                value = formatPercent(share.fraction),
+                fraction = share.fraction.toFloat(),
+                subtitle = if (share.area == Diagnosis.Area.UNMEASURED) {
+                    "The battery measured it, but Android couldn't trace it to any part of the phone"
+                } else {
+                    null
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopAppsCard(diagnosis: Diagnosis, analysis: Analysis) {
+    SectionCard("Top apps, % of battery") {
+        val max = diagnosis.topApps.maxOf { it.ofBattery }
+        diagnosis.topApps.forEach { app ->
+            BarRow(
+                title = analysis.label(app.uid).label,
+                value = formatBatteryShare(app.ofBattery),
+                fraction = if (max > 0) (app.ofBattery / max).toFloat() else 0f,
+                subtitle = "In use ${formatBatteryShare(app.inUseOfBattery)} · screen off ${formatBatteryShare(app.idleOfBattery)}",
+            )
+        }
     }
 }
 
@@ -84,7 +255,7 @@ private fun ChargingNote() {
 
 @Composable
 private fun AnomaliesCard(analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
-    SectionCard("Anomalies & rogue wakelocks") {
+    SectionCard("All findings") {
         if (analysis.anomalies.isEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)

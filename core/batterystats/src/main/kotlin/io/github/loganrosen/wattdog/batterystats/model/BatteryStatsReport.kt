@@ -115,7 +115,11 @@ data class UidPower(
     val cachedMah: Double = 0.0,
     /** Component totals such as `cpu`, `mobile_radio`, `wakelock`, `gnss`. Sub-states like `cpu:bg` are omitted. */
     val components: Map<String, Double> = emptyMap(),
-)
+    /** The same components counted only while the screen was off or dozing. */
+    val screenOffComponents: Map<String, Double> = emptyMap(),
+) {
+    val screenOffMah: Double get() = screenOffComponents.values.sum()
+}
 
 /** An entry from `All partial wake locks`. */
 data class PartialWakelock(
