@@ -43,7 +43,7 @@ data class Diagnosis(
         LOCATION("Location", setOf("gnss")),
         BLUETOOTH("Bluetooth", setOf("bluetooth")),
         OTHER_HARDWARE("Everything else", emptySet()),
-        UNMEASURED("Not traced by Android", emptySet()),
+        UNMEASURED("Not broken down by Android", emptySet()),
     }
 
     data class Share(val area: Area, val mah: Double, val fraction: Double)
@@ -238,7 +238,11 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
                 }
                 if (apps.isNotEmpty()) append(" Apps that used the most: ${names(apps)}.")
                 if (untraced != null && untraced.fraction >= 0.3) {
-                    append(" Android couldn't trace ${Diagnosis.pct(untraced.fraction * 100)} of it to any part of the phone.")
+                    append(
+                        " Android's own breakdown only covers ${Diagnosis.pct(
+                            (1 - untraced.fraction) * 100,
+                        )} of what the battery measured.",
+                    )
                 }
             },
             advice = "Camera, video, games, navigation and hotspot use drain quickly. If this was an ordinary day for you, " +

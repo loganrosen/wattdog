@@ -246,7 +246,8 @@ private fun BreakdownCard(diagnosis: Diagnosis) {
                 value = formatPercent(share.fraction),
                 fraction = share.fraction.toFloat(),
                 subtitle = if (share.area == Diagnosis.Area.UNMEASURED) {
-                    "The battery measured it, but Android couldn't trace it to any part of the phone"
+                    "The battery meter recorded this, but Android doesn't list it under any category. It can include memory and other " +
+                        "chips Android doesn't name, power regulation overhead, and estimation error"
                 } else {
                     null
                 },
@@ -263,7 +264,7 @@ private fun TopAppsCard(diagnosis: Diagnosis, analysis: Analysis) {
         Text(
             "Together these come to ${formatBatteryShare(diagnosis.topApps.sumOf { it.ofBattery })} of a full charge, out of " +
                 "${formatBatteryShare(used)} used. The rest went to the screen, radios, Android itself, other apps, " +
-                "and power Android couldn't trace.",
+                "and power Android doesn't break down.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

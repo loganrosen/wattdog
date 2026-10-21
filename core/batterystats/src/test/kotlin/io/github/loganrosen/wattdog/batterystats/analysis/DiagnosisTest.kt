@@ -48,9 +48,9 @@ class DiagnosisTest {
     }
 
     @Test
-    fun `screen-on cause admits how much Android couldn't trace`() {
+    fun `screen-on cause admits how little of it Android breaks down`() {
         val use = d.causes.first()
-        assertTrue("couldn't trace" in use.summary, use.summary)
+        assertTrue("breakdown only covers 5" in use.summary, use.summary)
         assertEquals(DrainCost.Basis.MEASURED, use.cost?.basis)
     }
 
