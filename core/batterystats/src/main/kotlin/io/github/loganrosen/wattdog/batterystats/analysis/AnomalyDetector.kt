@@ -181,6 +181,7 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
             val count = detail.jobs.sumOf { it.count }
             if (total >= t.heavyJobsMin || (count >= t.heavyJobCount && total >= t.heavyJobCountMinTotal)) {
                 val top = detail.jobs.maxByOrNull { it.total }
+                val isApp = detail.uid.isApplication
                 add(
                     Anomaly(
                         kind = AnomalyKind.HEAVY_JOBS,
@@ -188,15 +189,30 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                         title = "Heavy background jobs",
                         detail = "$count job runs totalling ${total.formatShort()}" +
                             (top?.let { ". Longest: ${it.displayName} (${it.total.formatShort()}, ${it.count}x)" } ?: "") + ".",
-                        advice = "Backups, photo sync, and indexing can be legitimate. If this app shouldn't be " +
-                            "working in the background, restrict its battery usage.",
-                        actions = listOf(
-                            SuggestedAction.ShowApp(detail.uid),
-                            SuggestedAction.OpenAppBatteryUsage(detail.uid),
-                        ),
+                        advice = if (isApp) {
+                            "Backups, photo sync, and indexing can be legitimate. If this app shouldn't be " +
+                                "working in the background, restrict its battery usage."
+                        } else {
+                            "These jobs belong to Android itself and can't be restricted. Many short runs " +
+                                "usually means a system check is rescheduling too often; it costs little unless " +
+                                "the total time is long."
+                        },
+                        actions = if (isApp) {
+                            listOf(
+                                SuggestedAction.ShowApp(detail.uid),
+                                SuggestedAction.OpenAppBatteryUsage(detail.uid),
+                            )
+                        } else {
+                            listOf(SuggestedAction.ShowApp(detail.uid))
+                        },
                         uid = detail.uid,
-                        cost = uidPower[detail.uid]?.let {
-                            DrainCost.of(report, it.totalMah - it.foregroundMah, DrainCost.Basis.UPPER_BOUND)
+                        // A system UID's background total covers everything that UID does, not just its jobs.
+                        cost = if (!isApp) {
+                            null
+                        } else {
+                            uidPower[detail.uid]?.let {
+                                DrainCost.of(report, it.totalMah - it.foregroundMah, DrainCost.Basis.UPPER_BOUND)
+                            }
                         },
                     ),
                 )
@@ -217,13 +233,18 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
                                 severity = if (known != null) Severity.INFO else Severity.WARNING,
                                 title = "Frequent wakeup alarm",
                                 detail = if (known != null) "$rate This is ${known.what}." else rate,
-                                advice = known?.advice ?: (
+                                advice = known?.advice ?: if (detail.uid.isApplication) {
                                     "Usually polling sync or reminders. Lower the app's sync " +
                                         "frequency or restrict its battery usage if you don't need it that often."
-                                    ),
+                                } else {
+                                    "This alarm belongs to Android itself and can't be restricted. The tag usually " +
+                                        "names the feature that set it."
+                                },
                                 actions = if (known != null) {
                                     known.actions.ifEmpty { listOf(SuggestedAction.OpenAppInfo(detail.uid)) } +
                                         SuggestedAction.ShowApp(detail.uid)
+                                } else if (!detail.uid.isApplication) {
+                                    listOf(SuggestedAction.ShowApp(detail.uid))
                                 } else {
                                     listOf(SuggestedAction.ShowApp(detail.uid), SuggestedAction.OpenAppBatteryUsage(detail.uid))
                                 },

@@ -80,4 +80,12 @@ class RealPixelModemGlitchTest {
         assertTrue("Wi-Fi calling" in dpd.detail)
         assertTrue(dpd.actions.none { it is SuggestedAction.OpenAppBatteryUsage })
     }
+
+    @Test
+    fun `system jobs are not treated as a restrictable app`() {
+        val jobs = anomalies.single { it.kind == AnomalyKind.HEAVY_JOBS && it.uid == AppUid(1000) }
+        assertNull(jobs.cost)
+        assertTrue(jobs.actions.none { it is SuggestedAction.OpenAppBatteryUsage })
+        assertTrue("can't be restricted" in jobs.advice)
+    }
 }
