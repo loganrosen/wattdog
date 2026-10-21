@@ -26,15 +26,24 @@ class DiagnosisTest {
     }
 
     @Test
-    fun `causes cover heavy use as well as idle drain, even when every finding is minor`() {
+    fun `breakdowns account for all of the measured drain`() {
         assertEquals(listOf(Diagnosis.Area.PROCESSING, Diagnosis.Area.MOBILE), d.idleBreakdown.take(2).map { it.area })
-        assertEquals(1.0, d.idleBreakdown.sumOf { it.fraction }, 0.06)
-        assertEquals(1.0, d.inUseBreakdown.sumOf { it.fraction }, 0.06)
+        assertEquals(1.0, d.idleBreakdown.sumOf { it.fraction }, 0.001)
+        assertEquals(1.0, d.inUseBreakdown.sumOf { it.fraction }, 0.001)
+    }
+
+    @Test
+    fun `causes cover heavy use as well as idle drain, even when every finding is minor`() {
         assertEquals(
-            listOf("Using the phone drained it quickly", "Your phone kept waking up while idle", "Staying on 5G cost power while idle"),
+            listOf(
+                "Using the phone drained it quickly",
+                "Background work used power while idle",
+                "Mobile data kept the modem busy while idle",
+            ),
             d.causes.map { it.title },
-            d.causes.joinToString("\n") { it.summary },
+            d.causes.joinToString("\n") { it.title + ": " + it.summary },
         )
+        assertEquals("Using the phone drained it quickly", d.causes[0].title)
         assertTrue(d.causes.none { c -> c.findings.any { it.kind == AnomalyKind.PHANTOM_WAKELOCK } })
     }
 
@@ -46,19 +55,21 @@ class DiagnosisTest {
     }
 
     @Test
-    fun `idle wakeups are pinned on Android, not an app, and link to the wakeup reasons`() {
-        val wakeups = d.causes[1]
-        assertTrue("Android's own services" in wakeups.summary, wakeups.summary)
-        assertTrue("Wi-Fi" in wakeups.summary, wakeups.summary)
-        assertEquals(null, wakeups.action)
-        assertEquals(SuggestedAction.ShowWakelocks(wakeupReasons = true), wakeups.details)
+    fun `idle processing is split between Android and apps across every UID, not just the top few`() {
+        // 183 of about 400 mAh of screen-off cpu/wakelock/GPU is charged to platform UIDs.
+        val processing = d.causes[1]
+        assertTrue("Android's own services were about 4" in processing.summary, processing.summary)
+        assertTrue("Wi-Fi" in processing.summary, processing.summary)
+        assertEquals(SuggestedAction.ShowWakelocks(wakeupReasons = true), processing.details)
     }
 
     @Test
-    fun `mobile drain without much app data is not blamed on syncing apps`() {
+    fun `idle mobile cost reflects how much Android tied to data, and 5G is only offered as an experiment`() {
+        // Android attributed 285 of 412 mAh of screen-off mobile radio power to UIDs.
         val mobile = d.causes[2]
-        assertTrue("wasn't app data" in mobile.summary, mobile.summary)
-        assertTrue("syncing" !in mobile.summary && "uid 10249" !in mobile.summary, mobile.summary)
+        assertEquals("Mobile data kept the modem busy while idle", mobile.title)
+        assertTrue("about 69%" in mobile.summary, mobile.summary)
+        assertTrue("on 5G 91%" in mobile.summary, mobile.summary)
         assertEquals(SuggestedAction.OpenMobileNetworkSettings, mobile.action)
         assertEquals("Try LTE for a day", mobile.actionLabel)
     }

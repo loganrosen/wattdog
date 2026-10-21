@@ -42,7 +42,7 @@ data class Diagnosis(
         MEDIA("Audio & video", setOf("audio", "video")),
         LOCATION("Location", setOf("gnss")),
         BLUETOOTH("Bluetooth", setOf("bluetooth")),
-        OTHER_HARDWARE("Other hardware", emptySet()),
+        OTHER_HARDWARE("Everything else", emptySet()),
         UNMEASURED("Not traced by Android", emptySet()),
     }
 
@@ -145,8 +145,10 @@ data class Diagnosis(
                 .map { area -> area to area.components.sumOf { byName[it] ?: 0.0 } }
             val other = byName.filterKeys { name -> Area.entries.none { name in it.components } }.values.sum()
             val unmeasured = (measured - grouped.sumOf { it.second } - other).coerceAtLeast(0.0)
-            return (grouped + (Area.OTHER_HARDWARE to other) + (Area.UNMEASURED to unmeasured))
-                .filter { it.second / measured >= 0.02 }
+            val (shown, small) = (grouped + (Area.UNMEASURED to unmeasured)).partition { it.second / measured >= 0.02 }
+            val rest = other + small.sumOf { it.second }
+            return (shown + (Area.OTHER_HARDWARE to rest))
+                .filter { it.second > 0 }
                 .map { (area, mah) -> Share(area, mah, mah / measured) }
                 .sortedByDescending { it.mah }
         }
@@ -169,9 +171,8 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
     private val used = mutableSetOf<Anomaly>()
 
     private companion object {
-        const val ANDROID = "Android itself"
+        const val ANDROID = "Android system"
         const val MIN_AREA_SHARE = 0.15
-        const val MIN_APP_DATA_BYTES = 5_000_000L
     }
 
     fun build(inUse: Pair<Diagnosis.Period, List<Diagnosis.Share>>?, idle: List<Diagnosis.Share>): List<Diagnosis.Cause> {
@@ -205,13 +206,13 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
     private fun cost(mah: Double, basis: DrainCost.Basis = DrainCost.Basis.ESTIMATED) = DrainCost.of(report, mah, basis)
 
     /** Platform UIDs (kernel, system server, radio...) mean nothing to most people, so they collapse into one entry. */
-    private fun topUsers(mah: (UidPower) -> Double, minMah: Double = 5.0): List<Pair<String, Double>> = report.uidPower
+    private fun allUsers(mah: (UidPower) -> Double): List<Pair<String, Double>> = report.uidPower
         .groupBy { if (it.uid.isApplication) appName(it.uid) else ANDROID }
         .mapValues { (_, uids) -> uids.sumOf(mah) }
-        .filterValues { it >= minMah }
         .entries.sortedByDescending { it.value }
-        .take(3)
         .map { it.key to it.value }
+
+    private fun topUsers(mah: (UidPower) -> Double, minMah: Double = 5.0) = allUsers(mah).filter { it.second >= minMah }.take(3)
 
     private fun names(users: List<Pair<String, Double>>) = users.joinToString(", ") { it.first }
 
@@ -309,9 +310,10 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
             AnomalyKind.WIFI_MULTICAST,
             systemOnly = true,
         )
-        val users = topUsers(screenOff(Diagnosis.Area.PROCESSING.components))
-        val total = users.sumOf { it.second }
-        val androidLeads = users.firstOrNull()?.first == ANDROID && users.first().second >= total / 2
+        val all = allUsers(screenOff(Diagnosis.Area.PROCESSING.components))
+        val androidShare = (all.firstOrNull { it.first == ANDROID }?.second ?: 0.0) / all.sumOf { it.second }.coerceAtLeast(1e-9)
+        val busiestApps = all.filter { it.first != ANDROID && it.second >= 5.0 }.take(3)
+        val wakeEvidence = related.any { it.severity > Severity.INFO && it.kind != AnomalyKind.HEAVY_JOBS }
         // Ranked by time awake afterwards; wakeup reasons say what triggered a wake, not who used the power after it.
         val sources = wakeSourceTotals(report.wakeupReasons)
             .filter { it.source != WakeSource.OTHER && it.source != WakeSource.APPS }
@@ -321,16 +323,16 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
             .maxByOrNull { screenOff(Diagnosis.Area.PROCESSING.components)(it) }
             ?.takeIf { screenOff(Diagnosis.Area.PROCESSING.components)(it) >= s.mah * 0.2 }
         return Diagnosis.Cause(
-            title = "Your phone kept waking up while idle",
+            title = if (wakeEvidence) "Your phone kept waking up while idle" else "Background work used power while idle",
             summary = buildString {
                 append("Processing in the background took ${share(s)}.")
-                if (androidLeads) {
-                    append(" Most of it was Android's own services rather than an app you installed")
-                    users.drop(1).takeIf { it.isNotEmpty() }?.let { append("; the busiest apps were ${names(it)}") }
-                    append(".")
-                } else if (users.isNotEmpty()) {
-                    append(" The busiest were ${names(users)}.")
+                if (androidShare >= 0.5) {
+                    append(" Most of it (${Diagnosis.pct(androidShare * 100)}) was Android's own services rather than apps")
+                } else {
+                    append(" Android's own services were about ${Diagnosis.pct(androidShare * 100)} of it; apps were the rest")
                 }
+                if (busiestApps.isNotEmpty()) append(". The busiest apps were ${names(busiestApps)}")
+                append(".")
                 if (sources.isNotEmpty()) {
                     append(" It stayed awake longest after wake-ups from ${sources.joinToString(" and ") { it.source.label }}.")
                 }
@@ -348,67 +350,62 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
         val related = take(AnomalyKind.CELLULAR_STANDBY)
         val radio = RadioAttribution.from(report)
         val radioOff = screenOff(setOf("mobile_radio"))
-        // Modeled radio power alone doesn't show an app used data; IMS and other signalling get charged too.
-        val dataApps = report.uidPower
-            .filter { it.uid.isApplication && radioOff(it) >= 5.0 && (report.uids[it.uid]?.mobileBytes ?: 0) >= MIN_APP_DATA_BYTES }
-            .sortedByDescending { radioOff(it) }
-        val appsShare = dataApps.sumOf { radioOff(it) } / s.mah
+        // Android charges radio-active time to whoever sent packets; what's left over is the modem idling on the network.
+        val radioTotal = report.globalPowerScreenOff.firstOrNull { it.name == "mobile_radio" }
+        val attributed = (radioTotal?.appsMah ?: report.uidPower.sumOf(radioOff)) / (radioTotal?.totalMah ?: s.mah).coerceAtLeast(1e-9)
+        val users = topUsers(radioOff)
+        val topApp = report.uidPower.filter { it.uid.isApplication }.maxByOrNull(radioOff)?.takeIf { radioOff(it) >= s.mah * 0.2 }
         val ratTotal = radio.radioAccessTech.values.fold(Duration.ZERO) { a, b -> a + b }
         val fiveG = radio.radioAccessTech.filterKeys { it.startsWith("nr") }.values.fold(Duration.ZERO) { a, b -> a + b }
         val fiveGShare = if (ratTotal.isPositive()) fiveG / ratTotal else 0.0
         val poor = radio.poorSignalRatio ?: 0.0
-        val appNames = dataApps.take(3).joinToString(", ") { appName(it.uid) }
+        val pct = { v: Double -> Diagnosis.pct(v * 100) }
 
-        if (appsShare >= 0.5) {
-            val top = dataApps.first()
-            return Diagnosis.Cause(
-                title = "Apps used mobile data while idle",
-                summary = "The mobile network took ${share(s)}, mostly from $appNames.",
-                advice = "Each burst of data keeps the modem powered for several seconds afterwards, so frequent small syncs add up.",
-                cost = cost(s.mah),
-                action = SuggestedAction.OpenAppBatteryUsage(top.uid),
-                actionLabel = "Limit ${appName(top.uid)} in the background",
-                details = SuggestedAction.ShowRadios,
-                findings = related,
-            )
-        }
         val summary = buildString {
-            append("The mobile network took ${share(s)}. Most of it wasn't app data, just the modem staying connected ")
-            append("for calls, texts and notifications, which it does even on Wi-Fi.")
-            if (dataApps.isNotEmpty()) append(" Apps using mobile data ($appNames) account for about ${Diagnosis.pct(appsShare * 100)}.")
+            append("The mobile network took ${share(s)}.")
+            if (attributed >= 0.5) {
+                append(" Android tied about ${pct(attributed)} of it to apps and services sending or receiving mobile data")
+                if (users.isNotEmpty()) append(", mostly ${names(users)}")
+                append("; the rest was the modem staying connected.")
+            } else {
+                append(" Only about ${pct(attributed)} was tied to mobile data; most was the modem staying connected, ")
+                append("which it does even on Wi-Fi.")
+            }
+            if (poor >= 0.25) append(" Signal was weak ${pct(poor)} of the time.")
+            if (fiveGShare >= 0.5) append(" Since unplugging, the phone was on 5G ${pct(fiveGShare)} of the time.")
         }
-        return when {
-            poor >= 0.25 -> Diagnosis.Cause(
-                title = "Weak signal made the modem work harder",
-                summary = "$summary Signal was weak ${Diagnosis.pct(poor * 100)} of the time.",
-                advice = "Not much to change here if you're often in weak coverage. Wi-Fi calling can help indoors.",
-                cost = cost(s.mah),
-                action = SuggestedAction.OpenMobileNetworkSettings,
-                details = SuggestedAction.ShowRadios,
-                findings = related,
+        val (action, label, advice) = when {
+            topApp != null -> Triple(
+                SuggestedAction.OpenAppBatteryUsage(topApp.uid),
+                "Limit ${appName(topApp.uid)} in the background",
+                "Each burst of data keeps the modem powered for several seconds afterwards, so frequent small syncs add up.",
             )
 
-            fiveGShare >= 0.5 -> Diagnosis.Cause(
-                title = "Staying on 5G cost power while idle",
-                summary = "$summary The phone was on 5G ${Diagnosis.pct(fiveGShare * 100)} of the time.",
-                advice = "Staying connected on 5G can cost more than LTE. Switching to LTE for a day is an easy, reversible test.",
-                cost = cost(s.mah),
-                action = SuggestedAction.OpenMobileNetworkSettings,
-                actionLabel = "Try LTE for a day",
-                details = SuggestedAction.ShowRadios,
-                findings = related,
+            fiveGShare >= 0.5 -> Triple(
+                SuggestedAction.OpenMobileNetworkSettings,
+                "Try LTE for a day",
+                "5G can cost more than LTE, but this data can't show how much. Switching to LTE for a day and comparing is " +
+                    "an easy, reversible way to find out.",
             )
 
-            else -> Diagnosis.Cause(
-                title = "Mobile network standby",
-                summary = "$summary Signal was mostly good.",
-                advice = "There's no obvious fix; this may be normal for your carrier and area.",
-                cost = cost(s.mah),
-                action = null,
-                details = SuggestedAction.ShowRadios,
-                findings = related,
-            )
+            poor >= 0.25 -> Triple(null, null, "Not much to change if you're often in weak coverage. Wi-Fi calling can help indoors.")
+
+            else -> Triple(null, null, null)
         }
+        return Diagnosis.Cause(
+            title = when {
+                poor >= 0.25 -> "Weak signal made the modem work harder"
+                attributed >= 0.5 -> "Mobile data kept the modem busy while idle"
+                else -> "Mobile network standby used power while idle"
+            },
+            summary = summary,
+            advice = advice,
+            cost = cost(s.mah),
+            action = action,
+            actionLabel = label,
+            details = SuggestedAction.ShowRadios,
+            findings = related,
+        )
     }
 
     private fun app(uid: AppUid, group: List<Anomaly>): Diagnosis.Cause {

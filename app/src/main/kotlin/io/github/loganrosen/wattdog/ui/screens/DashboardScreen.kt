@@ -259,6 +259,14 @@ private fun BreakdownCard(diagnosis: Diagnosis) {
 private fun TopAppsCard(diagnosis: Diagnosis, analysis: Analysis) {
     SectionCard("Apps that used the most") {
         val max = diagnosis.topApps.maxOf { it.ofBattery }
+        val used = listOfNotNull(diagnosis.inUse, diagnosis.idle).sumOf { it.batteryShare }
+        Text(
+            "Together these come to ${formatBatteryShare(diagnosis.topApps.sumOf { it.ofBattery })} of a full charge, out of " +
+                "${formatBatteryShare(used)} used. The rest went to the screen, radios, Android itself, other apps, " +
+                "and power Android couldn't trace.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         diagnosis.topApps.forEach { app ->
             BarRow(
                 title = analysis.label(app.uid).label,
