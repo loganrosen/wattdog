@@ -288,14 +288,30 @@ class AnomalyDetector(private val t: AnomalyThresholds = AnomalyThresholds()) {
 
         val awake = metrics.screenOffAwakeRatio
         if (awake != null && metrics.screenOff >= t.minScreenOff && awake >= t.screenOffAwakeRatio) {
+            val realWakelocks = real.fold(Duration.ZERO) { acc, wl -> acc + wl.total }
+            val sources = wakeSourceTotals(report.wakeupReasons).filter { it.source != WakeSource.OTHER }
+            val top = sources.firstOrNull()
+            val sourceText = sources.take(3).joinToString { s ->
+                val counts = listOfNotNull(
+                    s.wakeups.takeIf { it > 0 }?.let { "$it wakeups" },
+                    s.aborts.takeIf { it > 0 }?.let { "$it cancelled sleeps" },
+                ).joinToString(", ")
+                "${s.source.label} ${s.awake.formatShort()}" + if (counts.isNotEmpty()) " ($counts)" else ""
+            }
             add(
                 Anomaly(
                     kind = AnomalyKind.SCREEN_OFF_AWAKE,
                     severity = if (awake >= 0.6) Severity.CRITICAL else Severity.WARNING,
                     title = "CPU awake ${formatPercent(awake)} of screen-off time",
                     detail = "Awake ${metrics.screenOffAwake.formatShort()} out of ${metrics.screenOff.formatShort()} " +
-                        "with the screen off. Partial wakelocks total ${report.totalPartialWakelock.formatShort()}.",
-                    advice = "Something kept the CPU running. Start with the longest app wakelocks.",
+                        "with the screen off. App and system wakelocks total ${realWakelocks.formatShort()}" +
+                        (if (phantom.isNotEmpty()) " (not counting stuck timers)" else "") + "." +
+                        (if (sourceText.isNotEmpty()) " What woke it up: $sourceText." else ""),
+                    advice = if (top != null && top.awake > realWakelocks) {
+                        top.source.explanation
+                    } else {
+                        "Something kept the CPU running. Start with the longest app wakelocks."
+                    },
                     actions = listOf(SuggestedAction.ShowWakelocks()),
                     cost = DrainCost.of(
                         report,

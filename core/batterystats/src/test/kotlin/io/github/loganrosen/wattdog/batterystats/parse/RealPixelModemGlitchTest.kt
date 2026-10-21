@@ -3,6 +3,7 @@ package io.github.loganrosen.wattdog.batterystats.parse
 import io.github.loganrosen.wattdog.batterystats.Fixtures
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyDetector
 import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyKind
+import io.github.loganrosen.wattdog.batterystats.analysis.AnomalyThresholds
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCoverage
 import io.github.loganrosen.wattdog.batterystats.analysis.RadioAttribution
@@ -87,5 +88,15 @@ class RealPixelModemGlitchTest {
         assertNull(jobs.cost)
         assertTrue(jobs.actions.none { it is SuggestedAction.OpenAppBatteryUsage })
         assertTrue("can't be restricted" in jobs.advice)
+    }
+
+    @Test
+    fun `CPU awake finding names the Wi-Fi chip, not the stuck X wakelock`() {
+        // This capture sits at 29.8% awake, just under the default threshold.
+        val awake = AnomalyDetector(AnomalyThresholds(screenOffAwakeRatio = 0.25)).detect(r)
+            .single { it.kind == AnomalyKind.SCREEN_OFF_AWAKE }
+        assertTrue("What woke it up: Wi-Fi" in awake.detail, awake.detail)
+        assertTrue("not counting stuck timers" in awake.detail, awake.detail)
+        assertTrue(awake.advice.startsWith("The Wi-Fi chip"), awake.advice)
     }
 }

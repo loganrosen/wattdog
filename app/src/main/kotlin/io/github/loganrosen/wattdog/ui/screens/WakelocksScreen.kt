@@ -26,8 +26,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
+import io.github.loganrosen.wattdog.batterystats.analysis.WakeSource
 import io.github.loganrosen.wattdog.batterystats.analysis.formatBatteryShare
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
+import io.github.loganrosen.wattdog.batterystats.analysis.wakeSourceTotals
 import io.github.loganrosen.wattdog.batterystats.model.KernelWakelock
 import io.github.loganrosen.wattdog.batterystats.model.PartialWakelock
 import io.github.loganrosen.wattdog.batterystats.model.WakelockKind
@@ -92,7 +94,7 @@ fun WakelocksScreen(analysis: Analysis, modifier: Modifier = Modifier, focus: Fo
 
             WakelockView.KERNEL -> KernelList(report.kernelWakelocks, "No kernel wakelocks recorded.")
 
-            WakelockView.WAKEUP -> KernelList(report.wakeupReasons, "No wakeup reasons recorded.")
+            WakelockView.WAKEUP -> KernelList(report.wakeupReasons, "No wakeup reasons recorded.", bySource = true)
         }
     }
 }
@@ -149,21 +151,43 @@ private fun PartialList(items: List<PartialWakelock>, analysis: Analysis, focus:
 }
 
 @Composable
-private fun KernelList(items: List<KernelWakelock>, emptyText: String) {
+private fun KernelList(items: List<KernelWakelock>, emptyText: String, bySource: Boolean = false) {
     val sorted = remember(items) { items.sortedByDescending { it.total } }
+    val totals = remember(items, bySource) { if (bySource) wakeSourceTotals(items) else emptyList() }
     val max = sorted.firstOrNull()?.total?.toDouble(DurationUnit.MILLISECONDS) ?: 0.0
+    val sourceMax = totals.firstOrNull()?.awake?.toDouble(DurationUnit.MILLISECONDS) ?: 0.0
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         if (sorted.isEmpty()) item { EmptyNote(emptyText) }
+        if (totals.isNotEmpty()) {
+            item { Text("By source", style = MaterialTheme.typography.titleSmall) }
+            items(totals, key = { "source/${it.source}" }) { s ->
+                BarRow(
+                    title = s.source.label,
+                    value = s.awake.formatShort(),
+                    fraction = if (sourceMax > 0) (s.awake.toDouble(DurationUnit.MILLISECONDS) / sourceMax).toFloat() else 0f,
+                    subtitle = listOfNotNull(
+                        s.wakeups.takeIf { it > 0 }?.let { "$it wakeups" },
+                        s.aborts.takeIf { it > 0 }?.let { "$it cancelled sleeps" },
+                    ).joinToString(" · "),
+                )
+            }
+            item { Text("All reasons", style = MaterialTheme.typography.titleSmall) }
+        }
         items(sorted, key = { it.name }) { wl ->
+            val source = WakeSource.of(wl.name)
             BarRow(
                 title = wl.name,
                 value = wl.total.formatShort(),
                 fraction = if (max > 0) (wl.total.toDouble(DurationUnit.MILLISECONDS) / max).toFloat() else 0f,
-                subtitle = "${wl.count}×",
+                subtitle = buildString {
+                    if (source != WakeSource.OTHER) append("${source.label} · ")
+                    if (WakeSource.isAbort(wl.name)) append("cancelled sleep · ")
+                    append("${wl.count}×")
+                },
             )
         }
     }
