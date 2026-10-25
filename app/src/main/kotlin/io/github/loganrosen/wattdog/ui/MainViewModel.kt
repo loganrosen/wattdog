@@ -134,7 +134,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                     it.copy(
                         baseline = Baseline.SinceCharge,
                         loading = false,
-                        message = "Stats were reset since then (charged or rebooted). Showing since unplugged.",
+                        message = "Stats were reset since then (charged or rebooted). Showing since the last full charge.",
                     )
                 }
                 analyze()

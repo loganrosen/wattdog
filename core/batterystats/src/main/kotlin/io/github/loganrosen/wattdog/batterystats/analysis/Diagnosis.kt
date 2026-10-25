@@ -9,17 +9,21 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.DurationUnit
 
-/** A plain-language summary of a report: how the battery did, what drove it, and what to do. */
+/** A plain-language summary of a report: where the battery went, whether anything looks wrong, and what to do. */
 data class Diagnosis(
     val verdict: Verdict,
+    /** Share of the battery used over the whole report, 0..1. */
+    val used: Double?,
     val inUse: Period?,
     val idle: Period?,
     /** Where power went while the screen was on, largest first. */
-    val inUseBreakdown: List<Share>,
+    val inUseBreakdown: Breakdown,
     /** Where power went while the screen was off, largest first. */
-    val idleBreakdown: List<Share>,
-    /** The few things worth knowing about, most expensive first. */
+    val idleBreakdown: Breakdown,
+    /** Problems worth fixing: material, tied to something specific, and with something to do. Often empty. */
     val causes: List<Cause>,
+    /** What else used power while idle, with nothing specific to change. For the technical view. */
+    val observations: List<Cause>,
     /** Installed apps only; Android's own UIDs are covered by the breakdowns. */
     val topApps: List<AppUse>,
 ) {
@@ -28,8 +32,13 @@ data class Diagnosis(
     data class Verdict(val level: Level, val headline: String, val explanation: String)
 
     data class Period(val duration: Duration, val batteryShare: Double, val percentPerHour: Double) {
-        val elevatedIdle get() = percentPerHour >= REFERENCE_IDLE_PERCENT_PER_HOUR * 1.25
-        val heavyUse get() = percentPerHour >= HEAVY_USE_PERCENT_PER_HOUR && duration >= 0.5.hours
+        /** Long enough and costly enough that its rate means something. */
+        val material get() = duration >= MIN_IDLE && batteryShare >= MIN_IDLE_SHARE
+        val elevatedIdle get() = material && percentPerHour >= REFERENCE_IDLE_PERCENT_PER_HOUR * 1.25
+        val highIdle get() = material && percentPerHour >= HIGH_IDLE_PERCENT_PER_HOUR
+
+        /** How much screen time a full charge would give at this period's rate. */
+        val perCharge: Duration? get() = (100 / percentPerHour).takeIf { it.isFinite() && it > 0 }?.hours
     }
 
     enum class Area(val label: String, val components: Set<String>) {
@@ -47,6 +56,19 @@ data class Diagnosis(
     }
 
     data class Share(val area: Area, val mah: Double, val fraction: Double)
+
+    /**
+     * [Share.fraction]s always sum to 1. Normally they're of the measured discharge, with whatever
+     * Android didn't estimate as [Area.UNMEASURED]. When Android's estimates add up to more than the
+     * battery measured, they're shares of the estimates instead and [overEstimated] is set.
+     */
+    data class Breakdown(val shares: List<Share>, val overEstimated: Boolean) {
+        val unmeasured: Share? get() = shares.firstOrNull { it.area == Area.UNMEASURED }
+
+        companion object {
+            val EMPTY = Breakdown(emptyList(), false)
+        }
+    }
 
     data class Cause(
         val title: String,
@@ -76,9 +98,11 @@ data class Diagnosis(
         const val REFERENCE_IDLE_PERCENT_PER_HOUR = 1.0
         const val HIGH_IDLE_PERCENT_PER_HOUR = 2.0
 
-        /** Screen-on loss above this is heavy even for most games or navigation. */
-        const val HEAVY_USE_PERCENT_PER_HOUR = 15.0
-        private val minIdle = 1.hours
+        /** A cause has to cost at least this much of the battery to be worth someone's attention. */
+        const val MIN_CAUSE_SHARE = 0.02
+        private const val MIN_IDLE_SHARE = 0.03
+        private val MIN_IDLE = 2.hours
+        private val MIN_JUDGEABLE_IDLE = 1.hours
 
         fun from(report: BatteryStatsReport, anomalies: List<Anomaly>, appName: (AppUid) -> String): Diagnosis {
             val capacity = report.estimatedCapacityMah?.takeIf { it > 0 }?.toDouble()
@@ -87,17 +111,16 @@ data class Diagnosis(
             val idle = period(metrics.screenOff, report.discharge.screenOffMah, capacity)
             val inUseBreakdown = breakdown(report.discharge.screenOnMah, screenOnComponents(report))
             val idleBreakdown = breakdown(report.discharge.screenOffMah, report.globalPowerScreenOff)
-            val idleCounts = idle != null && idle.duration >= minIdle
+            val (causes, observations) = Causes(report, anomalies, appName).build(idleBreakdown.shares, idle?.elevatedIdle == true)
             return Diagnosis(
-                verdict = verdict(idle?.takeIf { idleCounts }, inUse),
+                verdict = verdict(inUse, idle),
+                used = capacity?.let { report.discharge.totalMah / it },
                 inUse = inUse,
                 idle = idle,
                 inUseBreakdown = inUseBreakdown,
                 idleBreakdown = idleBreakdown,
-                causes = Causes(report, anomalies, appName).build(
-                    inUse = inUse?.takeIf { it.heavyUse }?.let { it to inUseBreakdown },
-                    idle = idleBreakdown.takeIf { idleCounts && idle!!.elevatedIdle }.orEmpty(),
-                ),
+                causes = causes,
+                observations = observations,
                 topApps = topApps(report),
             )
         }
@@ -109,28 +132,50 @@ data class Diagnosis(
             return Period(duration, share, share * 100 / hours)
         }
 
-        private fun verdict(idle: Period?, inUse: Period?): Verdict {
-            val heavy = inUse?.takeIf { it.heavyUse }
-            val heavyNote = heavy?.let { " While you were using it, it lost ${pct(it.percentPerHour)} an hour, which is a lot." } ?: ""
-            if (idle == null) {
+        private fun verdict(inUse: Period?, idle: Period?): Verdict {
+            val total = (inUse?.batteryShare ?: 0.0) + (idle?.batteryShare ?: 0.0)
+            if (total < 0.02) {
+                return Verdict(Level.TOO_EARLY, "Not enough to go on yet", "Check back after a few hours unplugged.")
+            }
+            val went = buildList {
+                inUse?.takeIf { it.batteryShare >= 0.005 }?.let {
+                    add("${share(it.batteryShare)} over ${it.duration.formatShort()} of screen time")
+                }
+                idle?.takeIf { it.batteryShare >= 0.005 }?.let {
+                    add("${share(it.batteryShare)} over ${it.duration.formatShort()} with the screen off")
+                }
+            }.joinToString(" and ")
+            val where = "It used ${share(total)}: $went."
+            val mostlyUse = (inUse?.batteryShare ?: 0.0) >= 2 * (idle?.batteryShare ?: 0.0)
+            if (idle == null || idle.duration < MIN_JUDGEABLE_IDLE) {
                 return Verdict(
                     Level.TOO_EARLY,
-                    heavy?.let { "Heavy drain while in use" } ?: "Not enough idle time yet",
-                    "Leave the phone unplugged with the screen off for an hour or more to judge idle drain.$heavyNote",
+                    if (mostlyUse) "Most of it went to screen time" else "Not enough idle time yet",
+                    "$where Leave the phone unplugged with the screen off for an hour or more to check idle drain.",
                 )
             }
-            val rate = idle.percentPerHour
-            val compared = "With the screen off it lost ${pct(rate)} an hour. A phone at rest usually loses around " +
-                "${pct(REFERENCE_IDLE_PERCENT_PER_HOUR)}, though this varies with signal and always-on display."
+            val rate = "With the screen off it lost ${pct(idle.percentPerHour)} an hour; a phone at rest usually loses around " +
+                "${pct(REFERENCE_IDLE_PERCENT_PER_HOUR)}, more with weak signal or always-on display."
             return when {
-                rate >= HIGH_IDLE_PERCENT_PER_HOUR -> Verdict(Level.POOR, "Battery drains fast while idle", compared + heavyNote)
-                idle.elevatedIdle -> Verdict(Level.FAIR, "Idle drain is a bit high", compared + heavyNote)
-                heavy != null -> Verdict(Level.FAIR, "Heavy drain while in use", "Idle drain is fine (${pct(rate)} an hour).$heavyNote")
-                else -> Verdict(Level.GOOD, "Battery looks healthy", "With the screen off it lost only ${pct(rate)} an hour.")
+                idle.highIdle && !mostlyUse -> Verdict(Level.POOR, "Battery drains fast while idle", "$where $rate")
+
+                idle.highIdle -> Verdict(Level.FAIR, "Mostly screen time, but idle drain is high", "$where $rate")
+
+                idle.elevatedIdle -> Verdict(Level.FAIR, "Idle drain is a bit high", "$where $rate")
+
+                mostlyUse -> Verdict(
+                    Level.GOOD,
+                    "Nothing looks wrong",
+                    "$where Most of it went to using the phone, and idle drain was normal (${pct(idle.percentPerHour)} an hour).",
+                )
+
+                else -> Verdict(Level.GOOD, "Nothing looks wrong", "$where Idle drain was normal (${pct(idle.percentPerHour)} an hour).")
             }
         }
 
-        internal fun pct(v: Double) = if (v < 9.95) "%.1f%%".format(v) else "${v.roundToInt()}%"
+        fun pct(v: Double) = if (v < 9.95) "%.1f%%".format(v) else "${v.roundToInt()}%"
+
+        private fun share(fraction: Double) = formatBatteryShare(fraction)
 
         /** The global power block only splits out screen-off, so screen-on is everything else. */
         private fun screenOnComponents(report: BatteryStatsReport): List<PowerComponent> {
@@ -138,19 +183,23 @@ data class Diagnosis(
             return report.globalPower.map { it.copy(totalMah = (it.totalMah - (off[it.name] ?: 0.0)).coerceAtLeast(0.0), appsMah = null) }
         }
 
-        private fun breakdown(measuredMah: Int, components: List<PowerComponent>): List<Share> {
-            val measured = measuredMah.toDouble().takeIf { it > 0 } ?: return emptyList()
+        internal fun breakdown(measuredMah: Int, components: List<PowerComponent>): Breakdown {
+            val measured = measuredMah.toDouble().takeIf { it > 0 } ?: return Breakdown.EMPTY
             val byName = components.associate { it.name to it.totalMah }
             val grouped = Area.entries.filter { it.components.isNotEmpty() }
                 .map { area -> area to area.components.sumOf { byName[it] ?: 0.0 } }
             val other = byName.filterKeys { name -> Area.entries.none { name in it.components } }.values.sum()
-            val unmeasured = (measured - grouped.sumOf { it.second } - other).coerceAtLeast(0.0)
-            val (shown, small) = (grouped + (Area.UNMEASURED to unmeasured)).partition { it.second / measured >= 0.02 }
-            val rest = other + small.sumOf { it.second }
-            return (shown + (Area.OTHER_HARDWARE to rest))
+            val estimated = grouped.sumOf { it.second } + other
+            val overEstimated = estimated > measured
+            val whole = maxOf(measured, estimated)
+            val unmeasured = measured - estimated
+            val (shown, small) = (grouped + (Area.UNMEASURED to unmeasured)).partition { it.second / whole >= 0.02 }
+            val rest = other + small.sumOf { it.second.coerceAtLeast(0.0) }
+            val shares = (shown + (Area.OTHER_HARDWARE to rest))
                 .filter { it.second > 0 }
-                .map { (area, mah) -> Share(area, mah, mah / measured) }
+                .map { (area, mah) -> Share(area, mah, mah / whole) }
                 .sortedByDescending { it.mah }
+            return Breakdown(shares, overEstimated)
         }
 
         private fun topApps(report: BatteryStatsReport): List<AppUse> {
@@ -175,12 +224,12 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
         const val MIN_AREA_SHARE = 0.15
     }
 
-    fun build(inUse: Pair<Diagnosis.Period, List<Diagnosis.Share>>?, idle: List<Diagnosis.Share>): List<Diagnosis.Cause> {
-        val fromUse = inUse?.let { (period, shares) -> inUse(period, shares) }
-        val fromIdle = idle.filter { it.fraction >= MIN_AREA_SHARE }.mapNotNull { area(it) }
+    /** Returns the causes worth acting on, then everything else for the technical view. */
+    fun build(idle: List<Diagnosis.Share>, idleElevated: Boolean): Pair<List<Diagnosis.Cause>, List<Diagnosis.Cause>> {
+        val fromIdle = if (idleElevated) idle.filter { it.fraction >= MIN_AREA_SHARE }.mapNotNull { area(it) } else emptyList()
         val fromApps = findings.filter { it !in used && it.uid?.isApplication == true }
             .groupBy { it.uid!! }
-            .filterValues { group -> group.any { it.severity > Severity.INFO || (it.cost?.ofBattery ?: 0.0) >= 0.03 } }
+            .filterValues { group -> group.any { it.severity > Severity.INFO || (it.cost?.ofBattery ?: 0.0) >= Diagnosis.MIN_CAUSE_SHARE } }
             .map { (uid, group) -> app(uid, group) }
         val leftovers = findings.filter { it !in used && it.severity > Severity.INFO && it.uid?.isApplication != true }
             .map {
@@ -188,7 +237,14 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
                 val details = it.actions.firstOrNull { a -> !a.isUserAction() }
                 Diagnosis.Cause(it.title, it.detail, it.advice, it.cost, action, details = details, findings = listOf(it), uid = it.uid)
             }
-        return (listOfNotNull(fromUse) + fromIdle + fromApps + leftovers).sortedByDescending { it.cost?.mah ?: 0.0 }.take(3)
+        val (causes, rest) = (fromIdle + fromApps + leftovers).sortedByDescending { it.cost?.mah ?: 0.0 }.partition { it.worthFixing() }
+        return causes.take(3) to (causes.drop(3) + rest)
+    }
+
+    private fun Diagnosis.Cause.worthFixing(): Boolean {
+        if (action == null) return false
+        val critical = findings.any { it.severity == Severity.CRITICAL && it.cost?.basis != DrainCost.Basis.NOT_REAL }
+        return critical || (cost?.takeIf { it.basis != DrainCost.Basis.NOT_REAL }?.ofBattery ?: 0.0) >= Diagnosis.MIN_CAUSE_SHARE
     }
 
     private fun SuggestedAction.isUserAction() = when (this) {
@@ -221,37 +277,6 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
     }
 
     private fun share(s: Diagnosis.Share) = "${Diagnosis.pct(s.fraction * 100)} of what the phone used with the screen off"
-
-    private fun inUse(period: Diagnosis.Period, shares: List<Diagnosis.Share>): Diagnosis.Cause {
-        val traced = shares.filter { it.area != Diagnosis.Area.UNMEASURED }.take(2)
-        val untraced = shares.firstOrNull { it.area == Diagnosis.Area.UNMEASURED }
-        val apps = topUsers({ u -> if (u.uid.isApplication) u.totalMah - u.screenOffMah else 0.0 })
-        val measuredMah = report.discharge.screenOnMah.toDouble()
-        return Diagnosis.Cause(
-            title = "Using the phone drained it quickly",
-            summary = buildString {
-                append("It lost ${Diagnosis.pct(period.percentPerHour)} an hour over ${period.duration.formatShort()} of screen time.")
-                if (traced.isNotEmpty()) {
-                    append(" The biggest costs Android could trace were ")
-                    append(traced.joinToString(" and ") { "${it.area.label.lowercase()} (${Diagnosis.pct(it.fraction * 100)})" })
-                    append(".")
-                }
-                if (apps.isNotEmpty()) append(" Apps that used the most: ${names(apps)}.")
-                if (untraced != null && untraced.fraction >= 0.3) {
-                    append(
-                        " Android's own breakdown only covers ${Diagnosis.pct(
-                            (1 - untraced.fraction) * 100,
-                        )} of what the battery measured.",
-                    )
-                }
-            },
-            advice = "Camera, video, games, navigation and hotspot use drain quickly. If this was an ordinary day for you, " +
-                "it's worth comparing with a lighter one.",
-            cost = cost(measuredMah, DrainCost.Basis.MEASURED),
-            action = null,
-            details = SuggestedAction.ShowApps,
-        )
-    }
 
     private fun area(s: Diagnosis.Share): Diagnosis.Cause? = when (s.area) {
         Diagnosis.Area.PROCESSING -> processing(s)
@@ -364,6 +389,7 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
         val fiveGShare = if (ratTotal.isPositive()) fiveG / ratTotal else 0.0
         val poor = radio.poorSignalRatio ?: 0.0
         val pct = { v: Double -> Diagnosis.pct(v * 100) }
+        val capacity = report.estimatedCapacityMah?.takeIf { it > 0 }?.toDouble() ?: Double.MAX_VALUE
 
         val summary = buildString {
             append("The mobile network took ${share(s)}.")
@@ -376,7 +402,7 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
                 append("which it does even on Wi-Fi.")
             }
             if (poor >= 0.25) append(" Signal was weak ${pct(poor)} of the time.")
-            if (fiveGShare >= 0.5) append(" Since unplugging, the phone was on 5G ${pct(fiveGShare)} of the time.")
+            if (fiveGShare >= 0.5) append(" The phone was on 5G ${pct(fiveGShare)} of the time.")
         }
         val (action, label, advice) = when {
             topApp != null -> Triple(
@@ -385,7 +411,8 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
                 "Each burst of data keeps the modem powered for several seconds afterwards, so frequent small syncs add up.",
             )
 
-            fiveGShare >= 0.5 -> Triple(
+            // 5G residency alone proves nothing; only suggest it when the cost is the modem idling, not app data.
+            fiveGShare >= 0.5 && attributed < 0.5 && (s.mah * (1 - attributed)) / capacity >= Diagnosis.MIN_CAUSE_SHARE -> Triple(
                 SuggestedAction.OpenMobileNetworkSettings,
                 "Try LTE for a day",
                 "5G can cost more than LTE, but this data can't show how much. Switching to LTE for a day and comparing is " +

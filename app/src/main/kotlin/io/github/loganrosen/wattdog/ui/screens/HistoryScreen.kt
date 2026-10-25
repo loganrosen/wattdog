@@ -117,7 +117,7 @@ private fun HistoryContent(full: BatteryHistory, analysis: Analysis, modifier: M
     }
 }
 
-/** Since unplugged → the stats' start clock; snapshot → when it was captured, both on the history's wall clock. */
+/** Since last full charge → the stats' start clock; snapshot → when it was captured, both on the history's wall clock. */
 private fun windowStart(h: BatteryHistory, analysis: Analysis): Long = when (val b = analysis.baseline) {
     Baseline.SinceCharge ->
         analysis.report.startClockTime?.let(HistorySummary::clockMillis)

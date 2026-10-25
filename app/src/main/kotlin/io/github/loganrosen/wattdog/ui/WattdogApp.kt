@@ -286,7 +286,7 @@ private fun BaselinePicker(ui: BaselinePickerUi, modifier: Modifier = Modifier) 
             Column(Modifier.weight(1f, fill = false)) {
                 Text(
                     when (val b = ui.baseline) {
-                        Baseline.SinceCharge -> "Since unplugged"
+                        Baseline.SinceCharge -> "Since last full charge"
                         is Baseline.Snapshot -> "Since ${b.meta.title()}"
                     },
                     style = MaterialTheme.typography.titleLarge,
@@ -313,7 +313,9 @@ private fun BaselinePicker(ui: BaselinePickerUi, modifier: Modifier = Modifier) 
 
             MenuHeader("Recent")
             DropdownMenuItem(
-                text = { MenuText("Since unplugged", session?.let { "${it.onBatteryRealtimeMs.milliseconds.formatShort()} on battery" }) },
+                text = {
+                    MenuText("Since last full charge", session?.let { "${it.onBatteryRealtimeMs.milliseconds.formatShort()} on battery" })
+                },
                 onClick = { select(Baseline.SinceCharge) },
             )
             presets.forEach { p ->

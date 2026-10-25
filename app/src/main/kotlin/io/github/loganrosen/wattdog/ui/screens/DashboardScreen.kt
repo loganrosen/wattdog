@@ -79,15 +79,16 @@ fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, mod
         if (analysis.power?.isPowered == true) item { ChargingNote() }
         item { VerdictCard(diagnosis) }
         item { CausesCard(diagnosis, analysis, onAction) }
-        item { BreakdownCard(diagnosis) }
         if (diagnosis.topApps.isNotEmpty()) item { TopAppsCard(diagnosis, analysis) }
         item {
             TextButton(onClick = { showDetails = !showDetails }, Modifier.fillMaxWidth()) {
                 Icon(if (showDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null)
-                Text(if (showDetails) "Hide details" else "Show all findings and numbers")
+                Text(if (showDetails) "Hide technical details" else "Technical details")
             }
         }
         if (showDetails) {
+            if (diagnosis.observations.isNotEmpty()) item { ObservationsCard(diagnosis, analysis, onAction) }
+            item { BreakdownCard(diagnosis) }
             item { AnomaliesCard(analysis, onAction) }
             item { DrainCard(drain, analysis) }
             item { TopDrainersCard(analysis) }
@@ -125,8 +126,16 @@ private fun VerdictCard(diagnosis: Diagnosis) {
             Text(verdict.explanation, style = MaterialTheme.typography.bodyMedium)
             if (diagnosis.inUse != null || diagnosis.idle != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    diagnosis.inUse?.let { PeriodTile("Using the phone", it, Modifier.weight(1f)) }
-                    diagnosis.idle?.let { PeriodTile("Screen off", it, Modifier.weight(1f)) }
+                    diagnosis.inUse?.let {
+                        PeriodTile(
+                            "Using the phone",
+                            it,
+                            it.perCharge?.takeIf { _ -> it.duration.inWholeMinutes >= 30 }
+                                ?.let { d -> "A full charge ≈ ${d.formatShort()} of this" },
+                            Modifier.weight(1f),
+                        )
+                    }
+                    diagnosis.idle?.let { PeriodTile("Screen off", it, "${Diagnosis.pct(it.percentPerHour)} an hour", Modifier.weight(1f)) }
                 }
             }
         }
@@ -134,36 +143,62 @@ private fun VerdictCard(diagnosis: Diagnosis) {
 }
 
 @Composable
-private fun PeriodTile(label: String, period: Diagnosis.Period, modifier: Modifier = Modifier) {
+private fun PeriodTile(label: String, period: Diagnosis.Period, note: String?, modifier: Modifier = Modifier) {
     Surface(modifier, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("${formatBatteryShare(period.batteryShare)} of battery", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "${period.duration.formatShort()} · ${"%.1f".format(period.percentPerHour)}%/h",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(period.duration.formatShort(), style = MaterialTheme.typography.bodySmall)
+            note?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
 
 @Composable
 private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
-    SectionCard("What's using your battery") {
+    SectionCard("What to fix") {
         if (diagnosis.causes.isEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                EmptyNote(
-                    if (diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY) {
-                        "Check back after the phone has been idle for a while."
-                    } else {
-                        "Nothing stands out. Your battery use looks normal."
-                    },
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("No recommended fix", style = MaterialTheme.typography.titleMedium)
+                    EmptyNote(noFixNote(diagnosis))
+                }
             }
         }
         diagnosis.causes.forEachIndexed { i, cause ->
+            if (i > 0) HorizontalDivider()
+            CauseRow(cause, analysis, onAction)
+        }
+    }
+}
+
+private fun noFixNote(diagnosis: Diagnosis): String {
+    val idle = diagnosis.idle
+    return when {
+        diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY -> "Check back after the phone has been idle for a while."
+
+        idle?.elevatedIdle == true -> {
+            val top = diagnosis.idleBreakdown.shares.filter {
+                it.area != Diagnosis.Area.UNMEASURED &&
+                    it.area != Diagnosis.Area.OTHER_HARDWARE
+            }
+                .take(2)
+                .joinToString(" and ") { "${it.area.label.lowercase()} (${formatPercent(it.fraction)})" }
+            "No single app or setting stands out." + (if (top.isNotEmpty()) " With the screen off, power went mostly to $top." else "") +
+                " Technical details has more."
+        }
+
+        else -> "Nothing here is worth changing."
+    }
+}
+
+@Composable
+private fun ObservationsCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+    SectionCard("Other things that used power") {
+        diagnosis.observations.forEachIndexed { i, cause ->
             if (i > 0) HorizontalDivider()
             CauseRow(cause, analysis, onAction)
         }
@@ -222,25 +257,32 @@ private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (Sugg
 @Composable
 private fun BreakdownCard(diagnosis: Diagnosis) {
     val periods = listOfNotNull(
-        diagnosis.inUse?.takeIf { diagnosis.inUseBreakdown.isNotEmpty() }?.let { Triple("Using the phone", it, diagnosis.inUseBreakdown) },
-        diagnosis.idle?.takeIf { diagnosis.idleBreakdown.isNotEmpty() }?.let { Triple("Screen off", it, diagnosis.idleBreakdown) },
+        diagnosis.inUse?.takeIf {
+            diagnosis.inUseBreakdown.shares.isNotEmpty()
+        }?.let { Triple("Using the phone", it, diagnosis.inUseBreakdown) },
+        diagnosis.idle?.takeIf { diagnosis.idleBreakdown.shares.isNotEmpty() }?.let { Triple("Screen off", it, diagnosis.idleBreakdown) },
     )
     if (periods.isEmpty()) return
     var selected by rememberSaveable { mutableStateOf(periods.last().first) }
-    val (_, period, shares) = periods.firstOrNull { it.first == selected } ?: periods.last()
+    val (_, period, breakdown) = periods.firstOrNull { it.first == selected } ?: periods.last()
     SectionCard("Where the power went") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             periods.forEach { (label, _, _) ->
                 FilterChip(selected = label == selected, onClick = { selected = label }, label = { Text(label) })
             }
         }
+        val during = if (period === diagnosis.idle) "with the screen off" else "while using the phone"
         Text(
-            "Split of the ${formatBatteryShare(period.batteryShare)} of battery used " +
-                if (period === diagnosis.idle) "with the screen off" else "while using the phone",
+            if (breakdown.overEstimated) {
+                "Android's estimates for $during add up to more than the ${formatBatteryShare(period.batteryShare)} of battery " +
+                    "the battery actually measured, so these are only rough proportions."
+            } else {
+                "Split of the ${formatBatteryShare(period.batteryShare)} of battery used $during."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        shares.forEach { share ->
+        breakdown.shares.forEach { share ->
             BarRow(
                 title = share.area.label,
                 value = formatPercent(share.fraction),
@@ -262,9 +304,8 @@ private fun TopAppsCard(diagnosis: Diagnosis, analysis: Analysis) {
         val max = diagnosis.topApps.maxOf { it.ofBattery }
         val used = listOfNotNull(diagnosis.inUse, diagnosis.idle).sumOf { it.batteryShare }
         Text(
-            "Together these come to ${formatBatteryShare(diagnosis.topApps.sumOf { it.ofBattery })} of a full charge, out of " +
-                "${formatBatteryShare(used)} used. The rest went to the screen, radios, Android itself, other apps, " +
-                "and power Android doesn't break down.",
+            "Together ${formatBatteryShare(diagnosis.topApps.sumOf { it.ofBattery })} of the ${formatBatteryShare(used)} used. " +
+                "The rest went to the screen, radios, Android itself and other apps.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
