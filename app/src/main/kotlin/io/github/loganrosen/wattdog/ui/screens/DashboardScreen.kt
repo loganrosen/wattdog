@@ -240,11 +240,16 @@ private fun PeriodTile(label: String, period: Diagnosis.Period, note: String?, m
 private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
     SectionCard("What to fix") {
         if (diagnosis.causes.isEmpty()) {
+            val unexplained = diagnosis.idle?.elevatedIdle == true && diagnosis.verdict.level != Diagnosis.Level.TOO_EARLY
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(
+                    if (unexplained) Icons.Default.Info else Icons.Default.CheckCircle,
+                    null,
+                    tint = if (unexplained) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                )
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("No recommended fix", style = MaterialTheme.typography.titleMedium)
-                    EmptyNote(noFixNote(diagnosis))
+                    Text(if (unexplained) "No clear culprit" else "No recommended fix", style = MaterialTheme.typography.titleMedium)
+                    EmptyNote(noFixNote(diagnosis, unexplained))
                 }
             }
         }
@@ -255,13 +260,15 @@ private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (Sugg
     }
 }
 
-private fun noFixNote(diagnosis: Diagnosis): String {
-    val idle = diagnosis.idle
-    return when {
-        diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY -> "Check back after the phone has been idle for a while."
-        idle?.elevatedIdle == true -> "There's nothing clear to change. Technical details breaks down where the idle drain went."
-        else -> "Nothing here is worth changing."
-    }
+private fun noFixNote(diagnosis: Diagnosis, unexplained: Boolean): String = when {
+    diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY -> "Check back after the phone has been idle for a while."
+
+    unexplained ->
+        "No single app or setting is big enough to blame. A quiet night is the cleanest check: leave the phone " +
+            "unplugged and untouched overnight. If screen-off drain stays this high, something keeps running in the " +
+            "background. If it drops, most of it comes from the minutes after each use."
+
+    else -> "Nothing here is worth changing."
 }
 
 @Composable

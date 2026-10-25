@@ -73,7 +73,8 @@ class DiagnosisTest {
         val withAod = dark.copy(aodShare = 0.56)
         assertEquals(1.336, withAod.lightIdleLimit, 0.001)
         assertEquals(2.336, withAod.heavyIdleLimit, 0.001)
-        assertTrue(withAod.highIdle)
+        assertFalse(withAod.highIdle)
+        assertTrue(withAod.nearHeavy)
         assertFalse(dark.copy(aodShare = 1.0).highIdle)
         assertTrue(dark.copy(aodShare = 1.0).elevatedIdle)
 
@@ -91,8 +92,21 @@ class DiagnosisTest {
     }
 
     @Test
+    fun `idle drain just past the heavy line is borderline, not poor`() {
+        val idle = Diagnosis.Period(4.hours, 0.096, 2.4, aodShare = 0.5)
+        assertEquals(2.3, idle.heavyIdleLimit, 0.001)
+        val verdict = Diagnosis.verdict(null, idle, null)
+        assertEquals(Diagnosis.Level.FAIR, verdict.level)
+        assertEquals("Idle drain is on the high side", verdict.headline)
+        assertTrue("only just past the heavy line" in verdict.explanation, verdict.explanation)
+
+        assertEquals(Diagnosis.Level.POOR, Diagnosis.verdict(null, idle.copy(percentPerHour = 2.7), null).level)
+    }
+
+    @Test
     fun `high idle drain names the biggest parts`() {
         assertTrue("The biggest parts were " in d.verdict.explanation, d.verdict.explanation)
+        assertFalse("No single app" in d.verdict.explanation, d.verdict.explanation)
     }
 
     @Test

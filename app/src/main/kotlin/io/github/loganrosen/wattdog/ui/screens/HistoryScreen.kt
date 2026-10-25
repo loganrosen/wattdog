@@ -196,17 +196,24 @@ private fun SummaryCard(s: HistorySummary) {
         StatRow("Screen on", s.screenOnMillis.milliseconds.formatShort())
         StatRow("Screen off", s.screenOffMillis.milliseconds.formatShort())
         s.screenOffAwakeRatio?.let {
+            val soon = if (s.screenOffAwakeMillis > 0) s.awakeSoonAfterOffMillis.toDouble() / s.screenOffAwakeMillis else 0.0
+            val mostlyAfterLocking = soon >= 0.5 && s.screenOffCount >= 10
             StatRow(
                 "Awake while screen off",
                 "${s.screenOffAwakeMillis.milliseconds.formatShort()} (${formatPercent(it)})",
-                emphasis = if (it > 0.15) MaterialTheme.colorScheme.error else null,
+                emphasis = if (it * (1 - soon) > 0.15) MaterialTheme.colorScheme.error else null,
             )
             if (s.screenOffCount > 0 && s.screenOffAwakeMillis > 0) {
                 StatRow(
                     "First 10 min after locking",
-                    "${s.awakeSoonAfterOffMillis.milliseconds.formatShort()} " +
-                        "(${formatPercent(s.awakeSoonAfterOffMillis.toDouble() / s.screenOffAwakeMillis)}), ${s.screenOffCount} locks",
+                    "${s.awakeSoonAfterOffMillis.milliseconds.formatShort()} (${formatPercent(soon)}), ${s.screenOffCount} locks",
                 )
+                if (mostlyAfterLocking) {
+                    EmptyNote(
+                        "Most of the screen-off activity came right after locking, as apps finished up. " +
+                            "That's normal, so it mostly tracks how often the phone gets picked up.",
+                    )
+                }
             }
         }
         if (s.screenDozeMillis > 0) StatRow("Always-on display", s.screenDozeMillis.milliseconds.formatShort())

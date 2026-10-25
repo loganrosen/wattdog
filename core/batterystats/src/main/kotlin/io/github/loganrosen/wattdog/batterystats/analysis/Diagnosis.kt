@@ -52,7 +52,10 @@ data class Diagnosis(
         /** At or above this, idle drain is heavy. */
         val heavyIdleLimit get() = HIGH_IDLE_PERCENT_PER_HOUR + AOD_ALLOWANCE_PERCENT_PER_HOUR * aodShare
         val elevatedIdle get() = material && percentPerHour >= lightIdleLimit * 1.25
-        val highIdle get() = material && percentPerHour >= heavyIdleLimit
+
+        /** Clearly heavy. Just over [heavyIdleLimit] is [nearHeavy] instead, since the limit is only a rough guide. */
+        val highIdle get() = material && percentPerHour >= heavyIdleLimit * BORDERLINE_MARGIN
+        val nearHeavy get() = material && percentPerHour >= heavyIdleLimit && !highIdle
 
         /** How much screen time a full charge would give at this period's rate. */
         val perCharge: Duration? get() = (100 / percentPerHour).takeIf { it.isFinite() && it > 0 }?.hours
@@ -122,6 +125,9 @@ data class Diagnosis(
          */
         const val AOD_ALLOWANCE_PERCENT_PER_HOUR = 0.6
 
+        /** How far past the heavy guide idle drain has to be before it's called heavy outright. */
+        const val BORDERLINE_MARGIN = 1.15
+
         /** A cause has to cost at least this much of the battery to be worth someone's attention. */
         const val MIN_CAUSE_SHARE = 0.02
         private const val MIN_IDLE_SHARE = 0.03
@@ -139,7 +145,7 @@ data class Diagnosis(
             val explain = idle?.elevatedIdle == true || unusual
             val (causes, observations) = Causes(report, anomalies, appName).build(idleBreakdown.shares, explain)
             return Diagnosis(
-                verdict = verdict(inUse, idle, typical?.idle, if (explain) contributors(idleBreakdown, causes) else null),
+                verdict = verdict(inUse, idle, typical?.idle, if (explain) contributors(idleBreakdown) else null),
                 used = capacity?.let { report.discharge.totalMah / it },
                 inUse = inUse,
                 idle = idle,
@@ -159,18 +165,14 @@ data class Diagnosis(
             return Period(duration, share, share * 100 / hours, aodShare)
         }
 
-        /** The largest parts of idle drain in plain words, and whether any app is to blame. */
-        private fun contributors(breakdown: Breakdown, causes: List<Cause>): String = buildList {
-            val top = breakdown.shares
-                .filter { it.area != Area.UNMEASURED && it.area != Area.OTHER_HARDWARE && it.fraction >= 0.15 }
-                .take(2)
-            if (top.isNotEmpty()) {
-                add("The biggest parts were ${top.joinToString(" and ") { "${it.area.label.lowercase()} (${pct(it.fraction * 100)})" }}.")
+        /** The largest parts of idle drain in plain words. Whether any app is to blame is left to the fix card. */
+        private fun contributors(breakdown: Breakdown): String? = breakdown.shares
+            .filter { it.area != Area.UNMEASURED && it.area != Area.OTHER_HARDWARE && it.fraction >= 0.15 }
+            .take(2)
+            .takeIf { it.isNotEmpty() }
+            ?.let { top ->
+                "The biggest parts were ${top.joinToString(" and ") { "${it.area.label.lowercase()} (${pct(it.fraction * 100)})" }}."
             }
-            if (causes.none { it.uid?.isApplication == true || it.action is SuggestedAction.OpenAppBatteryUsage }) {
-                add("No single app stands out.")
-            }
-        }.joinToString(" ")
 
         /**
          * The level comes only from the idle rate against fixed guides. History and screen time add
@@ -204,22 +206,30 @@ data class Diagnosis(
                 (if (idle.aodShare >= 0.1) ", allowing for the time the always-on display was on." else ".")
             val unusual = idle.material && usual?.isAbove(idle.percentPerHour) == true
             val recent = usual?.let { "Lately it has usually lost ${range(it)}" + if (unusual) ", so this is higher than usual." else "." }
-            val judged = { level: Level, headline: String ->
+            val judged = { level: Level, headline: String, note: String? ->
                 Verdict(
                     level,
                     headline,
-                    listOfNotNull(where, "With the screen off it lost $rate an hour.", guide, contributors, recent).joinToString(" "),
+                    listOfNotNull(where, "With the screen off it lost $rate an hour.", guide, note, contributors, recent).joinToString(" "),
                 )
             }
             return when {
                 idle.highIdle -> judged(
                     Level.POOR,
                     if (unusual) "Idle drain is heavy, and higher than usual" else "Battery drains fast while idle",
+                    null,
+                )
+
+                idle.nearHeavy -> judged(
+                    Level.FAIR,
+                    if (unusual) "Idle drain is on the high side, and higher than usual" else "Idle drain is on the high side",
+                    "That's only just past the heavy line, and the line is a rough guide.",
                 )
 
                 idle.elevatedIdle -> judged(
                     Level.FAIR,
                     if (unusual) "Idle drain is a bit high, and higher than usual" else "Idle drain is a bit high",
+                    null,
                 )
 
                 else -> {
