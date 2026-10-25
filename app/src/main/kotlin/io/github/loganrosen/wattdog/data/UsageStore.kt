@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
 
 /**
  * A small running log of battery counters, recorded every time the app reads batterystats, so the
- * app can learn what's normal for this phone. Unlike snapshots, it survives stats resets.
+ * app can learn this phone's recent range. Unlike snapshots, it survives stats resets.
  */
 class UsageStore(private val file: File) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -63,8 +63,10 @@ class UsageStore(private val file: File) {
         val offMs: Long,
         val offMah: Int,
         val capacity: Int,
+        val dozeMs: Long? = null,
+        val dozeMah: Int? = null,
     ) {
-        fun toPoint() = UsagePoint(at, session, battery, onMs, onMah, offMs, offMah, capacity)
+        fun toPoint() = UsagePoint(at, session, battery, onMs, onMah, offMs, offMah, capacity, dozeMs, dozeMah)
 
         companion object {
             fun of(p: UsagePoint) = Stored(
@@ -76,6 +78,8 @@ class UsageStore(private val file: File) {
                 p.screenOffMs,
                 p.screenOffMah,
                 p.capacityMah,
+                p.screenDozeMs,
+                p.screenDozeMah,
             )
         }
     }

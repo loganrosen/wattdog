@@ -31,10 +31,35 @@ class HistorySummaryTest {
         assertEquals(hour, s.screenOnMillis)
         assertEquals(3 * hour, s.screenOffMillis)
         assertEquals(hour / 2, s.screenOffAwakeMillis)
+        assertEquals(10 * 60_000L, s.awakeSoonAfterOffMillis)
+        assertEquals(1, s.screenOffCount)
         assertEquals(5.0, s.screenOnDropPerHour)
         assertEquals(1.0, s.screenOffDropPerHour)
         assertEquals(listOf(HistorySummary.UidTime(AppUid(10005), hour, 1)), s.topApps)
         assertEquals("x" to 60_000L, s.wakelocks.single().let { it.tag to it.millis })
+    }
+
+    @Test
+    fun `awake time soon after locking stops at the next unlock`() {
+        val h = HistoryParser.parse(
+            """
+            Battery History (0% used):
+                                0 (14) RESET:TIME: 2026-01-01-00-00-00
+                                0 (2) 100 status=discharging +running +screen
+                              +1h (2) 099 -screen
+                           +1h4m (2) 099 +screen
+                           +1h5m (2) 099 -screen
+                          +1h20m (2) 098 -running
+                          +1h40m (2) 098 +running
+                          +1h41m (2) 098 -running
+                              +3h (2) 097 +screen
+            """.trimIndent(),
+        )
+        val s = HistorySummary.from(h)
+        assertEquals(2, s.screenOffCount)
+        // 4 min after the first lock, then 10 of the 15 after the second; the 1h40m wake is later.
+        assertEquals(14 * 60_000L, s.awakeSoonAfterOffMillis)
+        assertEquals(20 * 60_000L, s.screenOffAwakeMillis)
     }
 
     @Test

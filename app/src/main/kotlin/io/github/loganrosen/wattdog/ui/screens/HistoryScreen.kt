@@ -102,11 +102,11 @@ fun HistoryScreen(load: HistoryLoad, analysis: Analysis, usage: List<UsagePoint>
 
 @Composable
 private fun UsualCard(typical: Typical?, progress: Pair<Int, Int>) {
-    SectionCard("What's normal for your phone") {
+    SectionCard("Your recent range") {
         if (typical == null) {
             val (periods, days) = progress
             EmptyNote(
-                "Wattdog learns this from your own use, so it can tell an unusual day from a normal one. " +
+                "Wattdog learns this from your own use, so it can point out a day that's higher than usual. " +
                     "It needs ${UsageLog.MIN_PERIODS} stretches of a couple of hours with the screen off, over at least " +
                     "${UsageLog.MIN_DAYS} days. So far: $periods over $days ${if (days == 1) "day" else "days"}, " +
                     "not counting the period Today is judging. " +
@@ -116,7 +116,9 @@ private fun UsualCard(typical: Typical?, progress: Pair<Int, Int>) {
             StatRow("Screen off", Diagnosis.range(typical.idle).replaceFirstChar { it.uppercase() })
             typical.inUse?.let { StatRow("Using the phone", Diagnosis.range(it).replaceFirstChar { c -> c.uppercase() }) }
             EmptyNote(
-                "From ${typical.periods} stretches over ${typical.days} days in the last two weeks, not counting the period Today is judging.",
+                "From ${typical.periods} stretches over ${typical.days} days in the last two weeks, " +
+                    "not counting the period Today is judging. " +
+                    "This shows what's usual for you, not whether it's healthy, so Today judges drain on its own.",
             )
         }
     }
@@ -199,6 +201,13 @@ private fun SummaryCard(s: HistorySummary) {
                 "${s.screenOffAwakeMillis.milliseconds.formatShort()} (${formatPercent(it)})",
                 emphasis = if (it > 0.15) MaterialTheme.colorScheme.error else null,
             )
+            if (s.screenOffCount > 0 && s.screenOffAwakeMillis > 0) {
+                StatRow(
+                    "First 10 min after locking",
+                    "${s.awakeSoonAfterOffMillis.milliseconds.formatShort()} " +
+                        "(${formatPercent(s.awakeSoonAfterOffMillis.toDouble() / s.screenOffAwakeMillis)}), ${s.screenOffCount} locks",
+                )
+            }
         }
         if (s.screenDozeMillis > 0) StatRow("Always-on display", s.screenDozeMillis.milliseconds.formatShort())
         StatRow("Deep doze", s.deepIdleMillis.milliseconds.formatShort())

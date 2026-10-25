@@ -32,35 +32,67 @@ class DiagnosisTest {
     }
 
     @Test
-    fun `idle drain is compared with this phone's usual range once there is one`() {
+    fun `idle drain is compared with this phone's recent range once there is one`() {
         val usual = Typical(Spread(0.6, 0.5, 0.7), null, 8, 4)
         val withHistory = Diagnosis.from(r, AnomalyDetector().detect(r), usual) { "uid ${it.raw}" }
         assertTrue(withHistory.unusualIdle)
         assertEquals(Diagnosis.Level.POOR, withHistory.verdict.level)
-        assertTrue("it usually loses 0.5–0.7% an hour" in withHistory.verdict.explanation, withHistory.verdict.explanation)
-        assertFalse("a phone at rest" in withHistory.verdict.explanation)
+        assertTrue("higher than usual" in withHistory.verdict.headline, withHistory.verdict.headline)
+        assertTrue("Lately it has usually lost 0.5–0.7% an hour" in withHistory.verdict.explanation, withHistory.verdict.explanation)
+        assertTrue("As a rough guide" in withHistory.verdict.explanation)
     }
 
     @Test
-    fun `slightly high idle drain that is normal for this phone isn't flagged`() {
-        val milder = r.copy(discharge = r.discharge.copy(screenOffMah = r.discharge.screenOffMah / 2))
+    fun `a high recent range doesn't make high idle drain look fine`() {
+        val milder = r.copy(discharge = r.discharge.copy(screenOffMah = r.discharge.screenOffMah * 2 / 3))
         val generic = Diagnosis.from(milder, AnomalyDetector().detect(milder)) { "uid ${it.raw}" }
-        assertEquals(1.5, generic.idle!!.percentPerHour, 0.05)
+        assertEquals(2.0, generic.idle!!.percentPerHour, 0.05)
         assertEquals(Diagnosis.Level.FAIR, generic.verdict.level)
 
-        val usual = Typical(Spread(1.4, 1.2, 1.6), null, 8, 4)
+        val usual = Typical(Spread(1.9, 1.7, 2.1), null, 8, 4)
         val personal = Diagnosis.from(milder, AnomalyDetector().detect(milder), usual) { "uid ${it.raw}" }
         assertFalse(personal.unusualIdle)
-        assertEquals(Diagnosis.Level.GOOD, personal.verdict.level)
-        assertTrue("normal for this phone" in personal.verdict.explanation, personal.verdict.explanation)
+        assertEquals(Diagnosis.Level.FAIR, personal.verdict.level)
+        assertFalse("normal" in personal.verdict.explanation, personal.verdict.explanation)
+        assertTrue("Lately it has usually lost 1.7–2.1% an hour." in personal.verdict.explanation, personal.verdict.explanation)
     }
 
     @Test
-    fun `idle drain above usual but too small to matter is mentioned without being flagged`() {
-        val idle = Diagnosis.Period(2.5.hours, 0.025, 1.0)
+    fun `idle drain above usual but still light is mentioned without being flagged`() {
+        val idle = Diagnosis.Period(4.hours, 0.04, 1.0)
         val verdict = Diagnosis.verdict(Diagnosis.Period(1.hours, 0.1, 10.0), idle, Spread(0.5, 0.4, 0.6))
         assertEquals(Diagnosis.Level.GOOD, verdict.level)
-        assertTrue("a little above usual" in verdict.explanation, verdict.explanation)
+        assertEquals("Idle drain is up, but still reasonable", verdict.headline)
+        assertTrue("higher than usual" in verdict.explanation, verdict.explanation)
+    }
+
+    @Test
+    fun `always-on display time raises the bands`() {
+        val dark = Diagnosis.Period(8.hours, 0.19, 2.38)
+        assertTrue(dark.highIdle)
+        val withAod = dark.copy(aodShare = 0.56)
+        assertEquals(1.336, withAod.lightIdleLimit, 0.001)
+        assertEquals(2.336, withAod.heavyIdleLimit, 0.001)
+        assertTrue(withAod.highIdle)
+        assertFalse(dark.copy(aodShare = 1.0).highIdle)
+        assertTrue(dark.copy(aodShare = 1.0).elevatedIdle)
+
+        val verdict = Diagnosis.verdict(null, dark.copy(aodShare = 1.0), null)
+        assertEquals(Diagnosis.Level.FAIR, verdict.level)
+        assertTrue("allowing for the time the always-on display was on" in verdict.explanation, verdict.explanation)
+    }
+
+    @Test
+    fun `heavy screen use doesn't soften a high idle verdict`() {
+        val idle = Diagnosis.Period(3.hours, 0.075, 2.5)
+        val verdict = Diagnosis.verdict(Diagnosis.Period(4.hours, 0.6, 15.0), idle, null)
+        assertEquals(Diagnosis.Level.POOR, verdict.level)
+        assertEquals("Battery drains fast while idle", verdict.headline)
+    }
+
+    @Test
+    fun `high idle drain names the biggest parts`() {
+        assertTrue("The biggest parts were " in d.verdict.explanation, d.verdict.explanation)
     }
 
     @Test

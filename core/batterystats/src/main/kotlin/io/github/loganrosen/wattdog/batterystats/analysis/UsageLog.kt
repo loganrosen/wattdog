@@ -25,6 +25,9 @@ data class UsagePoint(
     val screenOffMs: Long,
     val screenOffMah: Int,
     val capacityMah: Int,
+    /** Always-on display time and charge, part of the screen-off figures. Null in points logged before these were kept. */
+    val screenDozeMs: Long? = null,
+    val screenDozeMah: Int? = null,
 ) {
     companion object {
         fun of(report: BatteryStatsReport, capturedAtMillis: Long): UsagePoint? {
@@ -39,6 +42,8 @@ data class UsagePoint(
                 screenOffMs = metrics.screenOff.inWholeMilliseconds,
                 screenOffMah = report.discharge.screenOffMah,
                 capacityMah = capacity,
+                screenDozeMs = report.screenDoze.inWholeMilliseconds,
+                screenDozeMah = report.discharge.screenDozeMah,
             )
         }
     }
@@ -70,7 +75,10 @@ data class Spread(val median: Double, val low: Double, val high: Double) {
     fun isAbove(value: Double) = value > maxOf(high + (high - low), median * 1.3, median + 0.3)
 }
 
-/** What's normal for this phone, from past intervals. */
+/**
+ * This phone's recent range, from past intervals. It spots days that stand out; it can't say whether
+ * the range itself is healthy, so it never changes a verdict.
+ */
 data class Typical(val idle: Spread, val inUse: Spread?, val periods: Int, val days: Int)
 
 object UsageLog {

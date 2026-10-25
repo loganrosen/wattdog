@@ -29,18 +29,30 @@ data class Diagnosis(
     /** This phone's usual rates, once there's enough history. */
     val typical: Typical? = null,
 ) {
-    /** Idle drain clearly above this phone's own usual range. */
+    /** Idle drain clearly above this phone's recent range. Says nothing about whether that range is healthy. */
     val unusualIdle: Boolean get() = idle != null && idle.material && typical?.idle?.isAbove(idle.percentPerHour) == true
 
     enum class Level { GOOD, FAIR, POOR, TOO_EARLY }
 
     data class Verdict(val level: Level, val headline: String, val explanation: String)
 
-    data class Period(val duration: Duration, val batteryShare: Double, val percentPerHour: Double) {
+    data class Period(
+        val duration: Duration,
+        val batteryShare: Double,
+        val percentPerHour: Double,
+        /** Share of this period the always-on display was showing, 0..1. */
+        val aodShare: Double = 0.0,
+    ) {
         /** Long enough and costly enough that its rate means something. */
         val material get() = duration >= MIN_IDLE && batteryShare >= MIN_IDLE_SHARE
-        val elevatedIdle get() = material && percentPerHour >= REFERENCE_IDLE_PERCENT_PER_HOUR * 1.25
-        val highIdle get() = material && percentPerHour >= HIGH_IDLE_PERCENT_PER_HOUR
+
+        /** Below this, idle drain is light. Allows for always-on display time. */
+        val lightIdleLimit get() = REFERENCE_IDLE_PERCENT_PER_HOUR + AOD_ALLOWANCE_PERCENT_PER_HOUR * aodShare
+
+        /** At or above this, idle drain is heavy. */
+        val heavyIdleLimit get() = HIGH_IDLE_PERCENT_PER_HOUR + AOD_ALLOWANCE_PERCENT_PER_HOUR * aodShare
+        val elevatedIdle get() = material && percentPerHour >= lightIdleLimit * 1.25
+        val highIdle get() = material && percentPerHour >= heavyIdleLimit
 
         /** How much screen time a full charge would give at this period's rate. */
         val perCharge: Duration? get() = (100 / percentPerHour).takeIf { it.isFinite() && it > 0 }?.hours
@@ -97,11 +109,18 @@ data class Diagnosis(
 
     companion object {
         /**
-         * A rough reference for a phone at rest with always-on display, not a device-specific norm.
-         * Idle loss below this isn't worth chasing.
+         * Rough guides for a phone at rest with the screen dark. Nobody publishes a healthy idle rate,
+         * so these are product heuristics, not a device-specific norm. Idle loss below the first isn't
+         * worth chasing.
          */
         const val REFERENCE_IDLE_PERCENT_PER_HOUR = 1.0
         const val HIGH_IDLE_PERCENT_PER_HOUR = 2.0
+
+        /**
+         * Extra allowance for an hour of always-on display. Lab tests put its cost around 25-35 mA,
+         * roughly half a percent an hour on a 5,000 mAh battery and more on a worn one.
+         */
+        const val AOD_ALLOWANCE_PERCENT_PER_HOUR = 0.6
 
         /** A cause has to cost at least this much of the battery to be worth someone's attention. */
         const val MIN_CAUSE_SHARE = 0.02
@@ -112,14 +131,15 @@ data class Diagnosis(
             val capacity = report.estimatedCapacityMah?.takeIf { it > 0 }?.toDouble()
             val metrics = DrainMetrics.from(report)
             val inUse = period(metrics.screenOn, report.discharge.screenOnMah, capacity)
-            val idle = period(metrics.screenOff, report.discharge.screenOffMah, capacity)
+            val aodShare = ratio(report.screenDoze, metrics.screenOff)?.coerceIn(0.0, 1.0) ?: 0.0
+            val idle = period(metrics.screenOff, report.discharge.screenOffMah, capacity, aodShare)
             val inUseBreakdown = breakdown(report.discharge.screenOnMah, screenOnComponents(report))
             val idleBreakdown = breakdown(report.discharge.screenOffMah, report.globalPowerScreenOff)
             val unusual = idle != null && idle.material && typical?.idle?.isAbove(idle.percentPerHour) == true
-            val (causes, observations) = Causes(report, anomalies, appName)
-                .build(idleBreakdown.shares, idle?.elevatedIdle == true || unusual)
+            val explain = idle?.elevatedIdle == true || unusual
+            val (causes, observations) = Causes(report, anomalies, appName).build(idleBreakdown.shares, explain)
             return Diagnosis(
-                verdict = verdict(inUse, idle, typical?.idle),
+                verdict = verdict(inUse, idle, typical?.idle, if (explain) contributors(idleBreakdown, causes) else null),
                 used = capacity?.let { report.discharge.totalMah / it },
                 inUse = inUse,
                 idle = idle,
@@ -132,14 +152,31 @@ data class Diagnosis(
             )
         }
 
-        private fun period(duration: Duration, mah: Int, capacity: Double?): Period? {
+        private fun period(duration: Duration, mah: Int, capacity: Double?, aodShare: Double = 0.0): Period? {
             val hours = duration.toDouble(DurationUnit.HOURS)
             if (capacity == null || hours <= 0) return null
             val share = mah / capacity
-            return Period(duration, share, share * 100 / hours)
+            return Period(duration, share, share * 100 / hours, aodShare)
         }
 
-        internal fun verdict(inUse: Period?, idle: Period?, usual: Spread?): Verdict {
+        /** The largest parts of idle drain in plain words, and whether any app is to blame. */
+        private fun contributors(breakdown: Breakdown, causes: List<Cause>): String = buildList {
+            val top = breakdown.shares
+                .filter { it.area != Area.UNMEASURED && it.area != Area.OTHER_HARDWARE && it.fraction >= 0.15 }
+                .take(2)
+            if (top.isNotEmpty()) {
+                add("The biggest parts were ${top.joinToString(" and ") { "${it.area.label.lowercase()} (${pct(it.fraction * 100)})" }}.")
+            }
+            if (causes.none { it.uid?.isApplication == true || it.action is SuggestedAction.OpenAppBatteryUsage }) {
+                add("No single app stands out.")
+            }
+        }.joinToString(" ")
+
+        /**
+         * The level comes only from the idle rate against fixed guides. History and screen time add
+         * context but never make a rate look better or worse than it is.
+         */
+        internal fun verdict(inUse: Period?, idle: Period?, usual: Spread?, contributors: String? = null): Verdict {
             val total = (inUse?.batteryShare ?: 0.0) + (idle?.batteryShare ?: 0.0)
             if (total < 0.02) {
                 return Verdict(Level.TOO_EARLY, "Not enough to go on yet", "Check back after a few hours unplugged.")
@@ -153,47 +190,45 @@ data class Diagnosis(
                 }
             }.joinToString(" and ")
             val where = "It used ${share(total)}: $went."
-            val mostlyUse = (inUse?.batteryShare ?: 0.0) >= 2 * (idle?.batteryShare ?: 0.0)
             if (idle == null || idle.duration < MIN_IDLE) {
+                val mostlyUse = (inUse?.batteryShare ?: 0.0) >= 2 * (idle?.batteryShare ?: 0.0)
                 return Verdict(
                     Level.TOO_EARLY,
                     if (mostlyUse) "Most of it went to screen time" else "Not enough idle time yet",
                     "$where Leave the phone unplugged with the screen off for a couple of hours to check idle drain.",
                 )
             }
-            val lost = "With the screen off it lost ${pct(idle.percentPerHour)} an hour"
-            val rate = if (usual != null) {
-                "$lost; it usually loses ${range(usual)}."
-            } else {
-                "$lost; a phone at rest usually loses around ${pct(REFERENCE_IDLE_PERCENT_PER_HOUR)}, " +
-                    "more with weak signal or always-on display."
-            }
+            val rate = pct(idle.percentPerHour)
+            val guide = "As a rough guide, under ${pct(idle.lightIdleLimit)} an hour is light and " +
+                "${pct(idle.heavyIdleLimit)} or more is heavy" +
+                (if (idle.aodShare >= 0.1) ", allowing for the time the always-on display was on." else ".")
             val unusual = idle.material && usual?.isAbove(idle.percentPerHour) == true
+            val recent = usual?.let { "Lately it has usually lost ${range(it)}" + if (unusual) ", so this is higher than usual." else "." }
+            val judged = { level: Level, headline: String ->
+                Verdict(
+                    level,
+                    headline,
+                    listOfNotNull(where, "With the screen off it lost $rate an hour.", guide, contributors, recent).joinToString(" "),
+                )
+            }
             return when {
-                idle.highIdle && !mostlyUse -> Verdict(Level.POOR, "Battery drains fast while idle", "$where $rate")
+                idle.highIdle -> judged(
+                    Level.POOR,
+                    if (unusual) "Idle drain is heavy, and higher than usual" else "Battery drains fast while idle",
+                )
 
-                unusual && !mostlyUse -> Verdict(Level.POOR, "Idle drain is higher than usual", "$where $rate")
-
-                unusual -> Verdict(Level.FAIR, "Mostly screen time, but idle drain is higher than usual", "$where $rate")
-
-                idle.highIdle -> Verdict(Level.FAIR, "Mostly screen time, but idle drain is high", "$where $rate")
-
-                // A phone with AOD and weak signal can sit above the generic reference every day; once
-                // its own history says that's normal, it isn't news.
-                idle.elevatedIdle && usual == null -> Verdict(Level.FAIR, "Idle drain is a bit high", "$where $rate")
-
-                // Only a small share of the battery, so even a rate above usual isn't worth flagging.
-                usual != null && usual.isAbove(idle.percentPerHour) -> Verdict(
-                    Level.GOOD,
-                    "Nothing looks wrong",
-                    "$where Idle drain was a little above usual (${pct(idle.percentPerHour)} an hour against ${range(usual)}), " +
-                        "but too little to matter.",
+                idle.elevatedIdle -> judged(
+                    Level.FAIR,
+                    if (unusual) "Idle drain is a bit high, and higher than usual" else "Idle drain is a bit high",
                 )
 
                 else -> {
-                    val normal = if (usual != null) "normal for this phone" else "normal"
-                    val prefix = if (mostlyUse) "Most of it went to using the phone, and idle drain was" else "Idle drain was"
-                    Verdict(Level.GOOD, "Nothing looks wrong", "$where $prefix $normal (${pct(idle.percentPerHour)} an hour).")
+                    val word = if (idle.percentPerHour < idle.lightIdleLimit) "light" else "reasonable"
+                    Verdict(
+                        Level.GOOD,
+                        if (unusual) "Idle drain is up, but still $word" else "Nothing looks wrong",
+                        listOfNotNull(where, "Idle drain was $word ($rate an hour).", contributors, recent).joinToString(" "),
+                    )
                 }
             }
         }
@@ -316,7 +351,7 @@ private class Causes(private val report: BatteryStatsReport, anomalies: List<Ano
 
         Diagnosis.Area.AOD -> Diagnosis.Cause(
             title = "Always-on display",
-            summary = "Keeping the clock and notifications on screen took ${share(s)}.",
+            summary = "Keeping the clock and notifications on screen took ${share(s)}. That's a trade-off rather than a fault.",
             advice = "Turn it off, or set it to show only when you tap the screen, if you don't need it.",
             cost = cost(s.mah),
             action = SuggestedAction.OpenLockScreenSettings,

@@ -2,6 +2,7 @@ package io.github.loganrosen.wattdog.batterystats.analysis
 
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
+import io.github.loganrosen.wattdog.batterystats.model.HistorySpan
 import io.github.loganrosen.wattdog.batterystats.model.TaggedSpan
 import io.github.loganrosen.wattdog.batterystats.model.TimeSpan
 import io.github.loganrosen.wattdog.batterystats.model.coalesce
@@ -18,6 +19,10 @@ data class HistorySummary(
     val screenOffMillis: Long,
     /** CPU awake (`running`) while the screen was off. */
     val screenOffAwakeMillis: Long,
+    /** The part of [screenOffAwakeMillis] within [SOON_AFTER_MS] of the screen turning off: apps finishing up after use. */
+    val awakeSoonAfterOffMillis: Long,
+    /** Times the screen turned off. */
+    val screenOffCount: Int,
     val screenDozeMillis: Long,
     val deepIdleMillis: Long,
     val pluggedMillis: Long,
@@ -50,12 +55,20 @@ data class HistorySummary(
             }
             val unpluggedOff = screenOff - (plugged.coveredMillis() - intersect(plugged, screen))
             val unpluggedOn = screenOn - intersect(plugged, screen)
+            // Only the last span can still be on at the end, so offs[i] == screen[i].
+            val offs = screen.filter { it.endMillis < h.endMillis }
+            val soonAfter = offs.mapIndexed { i, s ->
+                val next = screen.getOrNull(i + 1)?.startMillis ?: h.endMillis
+                HistorySpan(s.endMillis, minOf(s.endMillis + SOON_AFTER_MS, next))
+            }
             return HistorySummary(
                 levelStart = h.levels.firstOrNull()?.level,
                 levelEnd = h.levels.lastOrNull()?.level,
                 screenOnMillis = screenOn,
                 screenOffMillis = screenOff,
                 screenOffAwakeMillis = running.coveredMillis() - intersect(running, screen),
+                awakeSoonAfterOffMillis = intersect(running, soonAfter),
+                screenOffCount = offs.size,
                 screenDozeMillis = h.flag(BatteryHistory.SCREEN_DOZE).coveredMillis(),
                 deepIdleMillis = h.state(BatteryHistory.DEVICE_IDLE).filter { it.value == "full" }.coveredMillis(),
                 pluggedMillis = plugged.coveredMillis(),
@@ -120,5 +133,7 @@ data class HistorySummary(
 
         // Rates over a few minutes are dominated by 1% rounding.
         private const val MIN_RATE_WINDOW_MS = 15 * 60_000L
+
+        const val SOON_AFTER_MS = 10 * 60_000L
     }
 }

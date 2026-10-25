@@ -166,7 +166,7 @@ private fun VerdictCard(diagnosis: Diagnosis) {
                         )
                     }
                     diagnosis.idle?.let {
-                        val usual = diagnosis.typical?.let { t -> "\nUsually ${Diagnosis.range(t.idle)}" }.orEmpty()
+                        val usual = diagnosis.typical?.let { t -> "\nLately ${Diagnosis.range(t.idle)}" }.orEmpty()
                         PeriodTile("Screen off", it, "${Diagnosis.pct(it.percentPerHour)} an hour$usual", Modifier.weight(1f))
                     }
                 }
@@ -259,18 +259,7 @@ private fun noFixNote(diagnosis: Diagnosis): String {
     val idle = diagnosis.idle
     return when {
         diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY -> "Check back after the phone has been idle for a while."
-
-        idle?.elevatedIdle == true -> {
-            val top = diagnosis.idleBreakdown.shares.filter {
-                it.area != Diagnosis.Area.UNMEASURED &&
-                    it.area != Diagnosis.Area.OTHER_HARDWARE
-            }
-                .take(2)
-                .joinToString(" and ") { "${it.area.label.lowercase()} (${formatPercent(it.fraction)})" }
-            "No single app or setting stands out." + (if (top.isNotEmpty()) " With the screen off, power went mostly to $top." else "") +
-                " Technical details has more."
-        }
-
+        idle?.elevatedIdle == true -> "No single app or setting stands out. Technical details has more."
         else -> "Nothing here is worth changing."
     }
 }
