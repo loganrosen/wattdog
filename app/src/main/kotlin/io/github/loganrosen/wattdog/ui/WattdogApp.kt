@@ -1,8 +1,10 @@
 package io.github.loganrosen.wattdog.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,11 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -22,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,12 +80,13 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 
+private enum class DiagnosticsSection(val label: String) { WAKELOCKS("Wakelocks"), RADIOS("Radios") }
+
 private enum class Tab(val label: String, val icon: ImageVector) {
-    DASHBOARD("Dashboard", Icons.Default.Home),
-    HISTORY("History", Icons.Default.DateRange),
-    WAKELOCKS("Wakelocks", Icons.Default.Lock),
-    RADIOS("Radios", Icons.Default.Call),
+    DASHBOARD("Today", Icons.Default.Home),
+    HISTORY("Trends", Icons.Default.DateRange),
     APPS("Apps", Icons.AutoMirrored.Filled.List),
+    DIAGNOSTICS("Diagnostics", Icons.Default.Build),
 
     // Reached from the top bar rather than the navigation bar.
     SETUP("Settings", Icons.Default.Settings),
@@ -97,6 +100,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val alertState by viewModel.alertState.collectAsStateWithLifecycle()
     val hasAccess = state.access.mode != AccessMode.NONE
     var tab by rememberSaveable { mutableStateOf(Tab.DASHBOARD) }
+    var section by rememberSaveable { mutableStateOf(DiagnosticsSection.WAKELOCKS) }
     var snapshotDialogLabel by remember { mutableStateOf<String?>(null) }
     var focus by remember { mutableStateOf<Focus?>(null) }
     val snackbar = remember { SnackbarHostState() }
@@ -137,9 +141,9 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
             else -> action.toFocus()?.let {
                 focus = it
                 tab = when (it) {
-                    is Focus.Wakelocks -> Tab.WAKELOCKS
+                    is Focus.Wakelocks -> Tab.DIAGNOSTICS.also { section = DiagnosticsSection.WAKELOCKS }
                     is Focus.App, Focus.Apps -> Tab.APPS
-                    Focus.Radios -> Tab.RADIOS
+                    Focus.Radios -> Tab.DIAGNOSTICS.also { section = DiagnosticsSection.RADIOS }
                 }
             }
         }
@@ -252,10 +256,30 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                             error?.let { ErrorBanner(it) }
                             when (current) {
                                 Tab.DASHBOARD -> DashboardScreen(analysis, ::onAction)
+
                                 Tab.HISTORY -> HistoryScreen(state.history, analysis, onRetry = { viewModel.loadHistory(force = true) })
-                                Tab.WAKELOCKS -> WakelocksScreen(analysis, focus = focus as? Focus.Wakelocks)
-                                Tab.RADIOS -> RadiosScreen(analysis)
+
                                 Tab.APPS -> AppsScreen(analysis, focusUid = (focus as? Focus.App)?.uid)
+
+                                Tab.DIAGNOSTICS -> Column {
+                                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        DiagnosticsSection.entries.forEach { d ->
+                                            FilterChip(
+                                                selected = section == d,
+                                                onClick = {
+                                                    section = d
+                                                    focus = null
+                                                },
+                                                label = { Text(d.label) },
+                                            )
+                                        }
+                                    }
+                                    when (section) {
+                                        DiagnosticsSection.WAKELOCKS -> WakelocksScreen(analysis, focus = focus as? Focus.Wakelocks)
+                                        DiagnosticsSection.RADIOS -> RadiosScreen(analysis)
+                                    }
+                                }
+
                                 Tab.SETUP -> Unit
                             }
                         }
