@@ -259,7 +259,7 @@ private fun noFixNote(diagnosis: Diagnosis): String {
     val idle = diagnosis.idle
     return when {
         diagnosis.verdict.level == Diagnosis.Level.TOO_EARLY -> "Check back after the phone has been idle for a while."
-        idle?.elevatedIdle == true -> "No single app or setting stands out. Technical details has more."
+        idle?.elevatedIdle == true -> "There's nothing clear to change. Technical details breaks down where the idle drain went."
         else -> "Nothing here is worth changing."
     }
 }
