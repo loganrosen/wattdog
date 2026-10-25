@@ -30,6 +30,30 @@ class DiagnosisTest {
     }
 
     @Test
+    fun `idle drain is compared with this phone's usual range once there is one`() {
+        val usual = Typical(Spread(0.6, 0.5, 0.7), null, 8, 4)
+        val withHistory = Diagnosis.from(r, AnomalyDetector().detect(r), usual) { "uid ${it.raw}" }
+        assertTrue(withHistory.unusualIdle)
+        assertEquals(Diagnosis.Level.POOR, withHistory.verdict.level)
+        assertTrue("it usually loses 0.5–0.7% an hour" in withHistory.verdict.explanation, withHistory.verdict.explanation)
+        assertFalse("a phone at rest" in withHistory.verdict.explanation)
+    }
+
+    @Test
+    fun `slightly high idle drain that is normal for this phone isn't flagged`() {
+        val milder = r.copy(discharge = r.discharge.copy(screenOffMah = r.discharge.screenOffMah / 2))
+        val generic = Diagnosis.from(milder, AnomalyDetector().detect(milder)) { "uid ${it.raw}" }
+        assertEquals(1.5, generic.idle!!.percentPerHour, 0.05)
+        assertEquals(Diagnosis.Level.FAIR, generic.verdict.level)
+
+        val usual = Typical(Spread(1.4, 1.2, 1.6), null, 8, 4)
+        val personal = Diagnosis.from(milder, AnomalyDetector().detect(milder), usual) { "uid ${it.raw}" }
+        assertFalse(personal.unusualIdle)
+        assertEquals(Diagnosis.Level.GOOD, personal.verdict.level)
+        assertTrue("normal for this phone" in personal.verdict.explanation, personal.verdict.explanation)
+    }
+
+    @Test
     fun `heavy use is summarised as screen time per charge rather than blamed`() {
         assertEquals(5.6, d.inUse!!.perCharge!!.inWholeMinutes / 60.0, 0.05)
         assertTrue(d.causes.none { "Using the phone" in it.title })

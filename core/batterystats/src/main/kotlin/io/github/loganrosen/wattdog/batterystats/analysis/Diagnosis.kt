@@ -26,7 +26,12 @@ data class Diagnosis(
     val observations: List<Cause>,
     /** Installed apps only; Android's own UIDs are covered by the breakdowns. */
     val topApps: List<AppUse>,
+    /** This phone's usual rates, once there's enough history. */
+    val typical: Typical? = null,
 ) {
+    /** Idle drain clearly above this phone's own usual range. */
+    val unusualIdle: Boolean get() = idle != null && idle.material && typical?.idle?.isAbove(idle.percentPerHour) == true
+
     enum class Level { GOOD, FAIR, POOR, TOO_EARLY }
 
     data class Verdict(val level: Level, val headline: String, val explanation: String)
@@ -104,16 +109,18 @@ data class Diagnosis(
         private val MIN_IDLE = 2.hours
         private val MIN_JUDGEABLE_IDLE = 1.hours
 
-        fun from(report: BatteryStatsReport, anomalies: List<Anomaly>, appName: (AppUid) -> String): Diagnosis {
+        fun from(report: BatteryStatsReport, anomalies: List<Anomaly>, typical: Typical? = null, appName: (AppUid) -> String): Diagnosis {
             val capacity = report.estimatedCapacityMah?.takeIf { it > 0 }?.toDouble()
             val metrics = DrainMetrics.from(report)
             val inUse = period(metrics.screenOn, report.discharge.screenOnMah, capacity)
             val idle = period(metrics.screenOff, report.discharge.screenOffMah, capacity)
             val inUseBreakdown = breakdown(report.discharge.screenOnMah, screenOnComponents(report))
             val idleBreakdown = breakdown(report.discharge.screenOffMah, report.globalPowerScreenOff)
-            val (causes, observations) = Causes(report, anomalies, appName).build(idleBreakdown.shares, idle?.elevatedIdle == true)
+            val unusual = idle != null && idle.material && typical?.idle?.isAbove(idle.percentPerHour) == true
+            val (causes, observations) = Causes(report, anomalies, appName)
+                .build(idleBreakdown.shares, idle?.elevatedIdle == true || unusual)
             return Diagnosis(
-                verdict = verdict(inUse, idle),
+                verdict = verdict(inUse, idle, typical?.idle),
                 used = capacity?.let { report.discharge.totalMah / it },
                 inUse = inUse,
                 idle = idle,
@@ -122,6 +129,7 @@ data class Diagnosis(
                 causes = causes,
                 observations = observations,
                 topApps = topApps(report),
+                typical = typical,
             )
         }
 
@@ -132,7 +140,7 @@ data class Diagnosis(
             return Period(duration, share, share * 100 / hours)
         }
 
-        private fun verdict(inUse: Period?, idle: Period?): Verdict {
+        private fun verdict(inUse: Period?, idle: Period?, usual: Spread?): Verdict {
             val total = (inUse?.batteryShare ?: 0.0) + (idle?.batteryShare ?: 0.0)
             if (total < 0.02) {
                 return Verdict(Level.TOO_EARLY, "Not enough to go on yet", "Check back after a few hours unplugged.")
@@ -154,23 +162,39 @@ data class Diagnosis(
                     "$where Leave the phone unplugged with the screen off for an hour or more to check idle drain.",
                 )
             }
-            val rate = "With the screen off it lost ${pct(idle.percentPerHour)} an hour; a phone at rest usually loses around " +
-                "${pct(REFERENCE_IDLE_PERCENT_PER_HOUR)}, more with weak signal or always-on display."
+            val lost = "With the screen off it lost ${pct(idle.percentPerHour)} an hour"
+            val rate = if (usual != null) {
+                "$lost; it usually loses ${range(usual)}."
+            } else {
+                "$lost; a phone at rest usually loses around ${pct(REFERENCE_IDLE_PERCENT_PER_HOUR)}, " +
+                    "more with weak signal or always-on display."
+            }
+            val unusual = idle.material && usual?.isAbove(idle.percentPerHour) == true
             return when {
                 idle.highIdle && !mostlyUse -> Verdict(Level.POOR, "Battery drains fast while idle", "$where $rate")
 
+                unusual && !mostlyUse -> Verdict(Level.POOR, "Idle drain is higher than usual", "$where $rate")
+
+                unusual -> Verdict(Level.FAIR, "Mostly screen time, but idle drain is higher than usual", "$where $rate")
+
                 idle.highIdle -> Verdict(Level.FAIR, "Mostly screen time, but idle drain is high", "$where $rate")
 
-                idle.elevatedIdle -> Verdict(Level.FAIR, "Idle drain is a bit high", "$where $rate")
+                // A phone with AOD and weak signal can sit above the generic reference every day; once
+                // its own history says that's normal, it isn't news.
+                idle.elevatedIdle && usual == null -> Verdict(Level.FAIR, "Idle drain is a bit high", "$where $rate")
 
-                mostlyUse -> Verdict(
-                    Level.GOOD,
-                    "Nothing looks wrong",
-                    "$where Most of it went to using the phone, and idle drain was normal (${pct(idle.percentPerHour)} an hour).",
-                )
-
-                else -> Verdict(Level.GOOD, "Nothing looks wrong", "$where Idle drain was normal (${pct(idle.percentPerHour)} an hour).")
+                else -> {
+                    val normal = if (usual != null) "normal for this phone" else "normal"
+                    val prefix = if (mostlyUse) "Most of it went to using the phone, and idle drain was" else "Idle drain was"
+                    Verdict(Level.GOOD, "Nothing looks wrong", "$where $prefix $normal (${pct(idle.percentPerHour)} an hour).")
+                }
             }
+        }
+
+        fun range(spread: Spread) = if (pct(spread.low) == pct(spread.high)) {
+            "about ${pct(spread.median)} an hour"
+        } else {
+            "${pct(spread.low).removeSuffix("%")}–${pct(spread.high)} an hour"
         }
 
         fun pct(v: Double) = if (v < 9.95) "%.1f%%".format(v) else "${v.roundToInt()}%"

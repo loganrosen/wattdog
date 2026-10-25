@@ -98,6 +98,7 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val backgroundEnabled by viewModel.backgroundChecksEnabled.collectAsStateWithLifecycle()
     val alertState by viewModel.alertState.collectAsStateWithLifecycle()
+    val usage by viewModel.usage.collectAsStateWithLifecycle()
     val hasAccess = state.access.mode != AccessMode.NONE
     var tab by rememberSaveable { mutableStateOf(Tab.DASHBOARD) }
     var section by rememberSaveable { mutableStateOf(DiagnosticsSection.WAKELOCKS) }
@@ -257,7 +258,9 @@ fun WattdogApp(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                             when (current) {
                                 Tab.DASHBOARD -> DashboardScreen(analysis, ::onAction)
 
-                                Tab.HISTORY -> HistoryScreen(state.history, analysis, onRetry = { viewModel.loadHistory(force = true) })
+                                Tab.HISTORY -> HistoryScreen(state.history, analysis, usage, onRetry = {
+                                    viewModel.loadHistory(force = true)
+                                })
 
                                 Tab.APPS -> AppsScreen(analysis, focusUid = (focus as? Focus.App)?.uid)
 

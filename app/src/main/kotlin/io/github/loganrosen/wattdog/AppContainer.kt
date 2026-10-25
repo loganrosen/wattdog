@@ -8,6 +8,7 @@ import io.github.loganrosen.wattdog.alerts.BackgroundChecks
 import io.github.loganrosen.wattdog.data.BatteryRepository
 import io.github.loganrosen.wattdog.data.SnapshotStore
 import io.github.loganrosen.wattdog.data.UidResolver
+import io.github.loganrosen.wattdog.data.UsageStore
 import io.github.loganrosen.wattdog.privileged.DirectDumpSource
 import io.github.loganrosen.wattdog.privileged.PrivilegedAccess
 import io.github.loganrosen.wattdog.privileged.ShizukuManager
@@ -31,7 +32,8 @@ class AppContainer(context: Context) {
 
     val uidResolver = UidResolver(context.packageManager)
     val snapshots = SnapshotStore(File(context.filesDir, "snapshots"))
-    val repository = BatteryRepository(access, snapshots, uidResolver)
+    val usage = UsageStore(File(context.filesDir, "usage.json"))
+    val repository = BatteryRepository(access, snapshots, usage, uidResolver)
 
     val alertStore = AlertStore(File(context.filesDir, "alerts")).also { appScope.launch { it.load() } }
     val notifier = AnomalyNotifier(context)

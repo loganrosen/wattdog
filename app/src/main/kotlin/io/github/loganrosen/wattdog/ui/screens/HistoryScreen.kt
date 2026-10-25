@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +40,13 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
+import io.github.loganrosen.wattdog.batterystats.analysis.DayUsage
+import io.github.loganrosen.wattdog.batterystats.analysis.Diagnosis
 import io.github.loganrosen.wattdog.batterystats.analysis.HistorySummary
+import io.github.loganrosen.wattdog.batterystats.analysis.Typical
+import io.github.loganrosen.wattdog.batterystats.analysis.UsageLog
+import io.github.loganrosen.wattdog.batterystats.analysis.UsagePoint
+import io.github.loganrosen.wattdog.batterystats.analysis.formatBatteryShare
 import io.github.loganrosen.wattdog.batterystats.analysis.formatPercent
 import io.github.loganrosen.wattdog.batterystats.analysis.formatShort
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
@@ -59,36 +66,84 @@ import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
-fun HistoryScreen(load: HistoryLoad, analysis: Analysis, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun HistoryScreen(load: HistoryLoad, analysis: Analysis, usage: List<UsagePoint>, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val full = load.history
-    when {
-        full == null && load.error != null -> Column(modifier.padding(24.dp)) {
-            Text("Couldn't load battery history", style = MaterialTheme.typography.titleMedium)
-            Text(load.error, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = onRetry) { Text("Retry") }
-        }
-
-        full == null -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator()
-                EmptyNote("Reading battery history…")
-            }
-        }
-
-        else -> HistoryContent(full, analysis, modifier)
-    }
-}
-
-@Composable
-private fun HistoryContent(full: BatteryHistory, analysis: Analysis, modifier: Modifier = Modifier) {
-    val from = remember(full, analysis) { windowStart(full, analysis) }
-    val window = remember(full, from) { full.window(from) }
-    val summary = remember(window) { HistorySummary.from(window) }
+    val intervals = remember(usage) { UsageLog.intervals(usage) }
+    val days = remember(intervals) { UsageLog.days(intervals, ZoneId.systemDefault()).take(14) }
+    val progress = remember(intervals) { UsageLog.progress(intervals, System.currentTimeMillis(), ZoneId.systemDefault()) }
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { UsualCard(analysis.diagnosis.typical, progress) }
+        if (days.isNotEmpty()) item { DaysCard(days) }
+        when {
+            full == null && load.error != null -> item {
+                SectionCard("Timeline") {
+                    Text("Couldn't load battery history", style = MaterialTheme.typography.titleMedium)
+                    Text(load.error, Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = onRetry) { Text("Retry") }
+                }
+            }
+
+            full == null -> item {
+                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        CircularProgressIndicator()
+                        EmptyNote("Reading battery history…")
+                    }
+                }
+            }
+
+            else -> historyContent(full, analysis)
+        }
+    }
+}
+
+@Composable
+private fun UsualCard(typical: Typical?, progress: Pair<Int, Int>) {
+    SectionCard("What's normal for your phone") {
+        if (typical == null) {
+            val (periods, days) = progress
+            EmptyNote(
+                "Wattdog learns this from your own use, so it can tell an unusual day from a normal one. " +
+                    "It needs ${UsageLog.MIN_PERIODS} stretches of a couple of hours with the screen off, over at least " +
+                    "${UsageLog.MIN_DAYS} days. So far: $periods over $days ${if (days == 1) "day" else "days"}. " +
+                    "Turning on background checks in Setup fills this in without opening the app.",
+            )
+        } else {
+            StatRow("Screen off", Diagnosis.range(typical.idle).replaceFirstChar { it.uppercase() })
+            typical.inUse?.let { StatRow("Using the phone", Diagnosis.range(it).replaceFirstChar { c -> c.uppercase() }) }
+            EmptyNote(
+                "From ${typical.periods} stretches over ${typical.days} days in the last two weeks, not counting the one shown on Today.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun DaysCard(days: List<DayUsage>) {
+    val format = remember { DateTimeFormatter.ofPattern("EEE d MMM") }
+    SectionCard("By day") {
+        EmptyNote("Only time on battery while Wattdog was checking is counted.")
+        days.forEach { d ->
+            StatRow(
+                d.date.format(format),
+                buildList {
+                    if (d.screenOn.inWholeMinutes > 0) add("${d.screenOn.formatShort()} on, ${formatBatteryShare(d.screenOnShare)}")
+                    d.idlePercentPerHour?.takeIf { d.screenOff.inWholeMinutes >= 60 }?.let { add("off ${Diagnosis.pct(it)}/h") }
+                }.joinToString(" · ").ifEmpty { "–" },
+            )
+        }
+    }
+}
+
+private fun LazyListScope.historyContent(full: BatteryHistory, analysis: Analysis) {
+    val from = windowStart(full, analysis)
+    val window = full.window(from)
+    val summary = HistorySummary.from(window)
+    run {
         if (from < full.startMillis) {
             item {
                 EmptyNote(

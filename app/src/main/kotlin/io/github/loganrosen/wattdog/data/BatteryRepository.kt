@@ -6,6 +6,8 @@ import io.github.loganrosen.wattdog.batterystats.analysis.DeltaResult
 import io.github.loganrosen.wattdog.batterystats.analysis.Diagnosis
 import io.github.loganrosen.wattdog.batterystats.analysis.PhantomWakelocks
 import io.github.loganrosen.wattdog.batterystats.analysis.ReportDelta
+import io.github.loganrosen.wattdog.batterystats.analysis.Typical
+import io.github.loganrosen.wattdog.batterystats.analysis.UsageLog
 import io.github.loganrosen.wattdog.batterystats.analysis.WakelockCosts
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
@@ -16,6 +18,7 @@ import io.github.loganrosen.wattdog.batterystats.parse.HistoryParser
 import io.github.loganrosen.wattdog.batterystats.parse.PowerDumpParser
 import io.github.loganrosen.wattdog.privileged.DumpSource
 import io.github.loganrosen.wattdog.privileged.DumpTarget
+import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -35,6 +38,8 @@ data class Analysis(
     val capturedAtMillis: Long,
     /** The interval the live dump belongs to, for telling which snapshots can still be compared. */
     val session: StatsSession,
+    /** This phone's usual drain from earlier periods, if there's enough history. */
+    val typical: Typical?,
     private val labels: Map<AppUid, AppLabel>,
     private val resolver: UidResolver,
 ) {
@@ -44,7 +49,7 @@ data class Analysis(
 
     val wakelockCosts: WakelockCosts by lazy { WakelockCosts(report) }
 
-    val diagnosis: Diagnosis by lazy { Diagnosis.from(report, anomalies) { label(it).label } }
+    val diagnosis: Diagnosis by lazy { Diagnosis.from(report, anomalies, typical) { label(it).label } }
 }
 
 class StatsResetException(message: String) : IllegalStateException(message)
@@ -52,6 +57,7 @@ class StatsResetException(message: String) : IllegalStateException(message)
 class BatteryRepository(
     private val source: DumpSource,
     private val snapshots: SnapshotStore,
+    private val usage: UsageStore,
     private val resolver: UidResolver,
     private val detector: AnomalyDetector = AnomalyDetector(),
 ) {
@@ -80,7 +86,14 @@ class BatteryRepository(
         }
         // The delta drops unchanged per-UID blocks, so take package hints from the full dump.
         val labels = uids.associateWith { resolver.resolve(it, now.report.uids[it]?.packages.orEmpty()) }
-        Analysis(baseline, report, now.power, anomalies, System.currentTimeMillis(), StatsSession.of(now.report), labels, resolver)
+        val nowMillis = System.currentTimeMillis()
+        val typical = UsageLog.typical(UsageLog.intervals(usage.points.value), nowMillis, ZoneId.systemDefault()) {
+            when (baseline) {
+                Baseline.SinceCharge -> it.session == now.report.startClockTime
+                is Baseline.Snapshot -> it.endMillis > baseline.meta.capturedAtMillis
+            }
+        }
+        Analysis(baseline, report, now.power, anomalies, nowMillis, StatsSession.of(now.report), typical, labels, resolver)
     }
 
     /** Streams `--history`; it can be tens of megabytes, so it's fetched only when the History tab asks. */
@@ -95,6 +108,7 @@ class BatteryRepository(
         val power = async { runCatching { PowerDumpParser.parse(source.dump(DumpTarget.POWER)) }.getOrNull() }
         val raw = source.dump(DumpTarget.BATTERYSTATS_CHARGED)
         val report = withContext(Dispatchers.Default) { BatteryStatsParser.parse(raw) }
+        runCatching { usage.record(report) }
         Capture(raw, report, power.await())
     }
 }

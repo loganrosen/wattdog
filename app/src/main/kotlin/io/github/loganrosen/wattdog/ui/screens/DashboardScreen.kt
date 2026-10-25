@@ -135,7 +135,10 @@ private fun VerdictCard(diagnosis: Diagnosis) {
                             Modifier.weight(1f),
                         )
                     }
-                    diagnosis.idle?.let { PeriodTile("Screen off", it, "${Diagnosis.pct(it.percentPerHour)} an hour", Modifier.weight(1f)) }
+                    diagnosis.idle?.let {
+                        val usual = diagnosis.typical?.let { t -> "\nUsually ${Diagnosis.range(t.idle)}" }.orEmpty()
+                        PeriodTile("Screen off", it, "${Diagnosis.pct(it.percentPerHour)} an hour$usual", Modifier.weight(1f))
+                    }
                 }
             }
         }

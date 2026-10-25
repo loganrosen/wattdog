@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.loganrosen.wattdog.AppContainer
 import io.github.loganrosen.wattdog.alerts.AlertState
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
+import io.github.loganrosen.wattdog.batterystats.analysis.UsagePoint
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
 import io.github.loganrosen.wattdog.batterystats.parse.BatteryStatsParseException
 import io.github.loganrosen.wattdog.data.Analysis
@@ -60,6 +61,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     init {
         viewModelScope.launch { container.snapshots.load() }
+        viewModelScope.launch { container.usage.load() }
         viewModelScope.launch {
             // Automatic snapshots get pruned in the background; don't keep pointing at a deleted one.
             container.snapshots.snapshots.collect { snaps ->
@@ -78,6 +80,8 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
 
     /** An action from a tapped notification, waiting for the UI to route it. */
     val pendingAction: StateFlow<SuggestedAction?> = _pendingAction.asStateFlow()
+
+    val usage: StateFlow<List<UsagePoint>> = container.usage.points
 
     val backgroundChecksEnabled: StateFlow<Boolean> = container.backgroundChecks.enabled
     val alertState: StateFlow<AlertState> = container.alertStore.state
