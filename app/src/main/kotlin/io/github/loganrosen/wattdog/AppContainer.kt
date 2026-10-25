@@ -6,6 +6,7 @@ import io.github.loganrosen.wattdog.alerts.AnomalyNotifier
 import io.github.loganrosen.wattdog.alerts.BackgroundCheck
 import io.github.loganrosen.wattdog.alerts.BackgroundChecks
 import io.github.loganrosen.wattdog.data.BatteryRepository
+import io.github.loganrosen.wattdog.data.ExperimentStore
 import io.github.loganrosen.wattdog.data.SnapshotStore
 import io.github.loganrosen.wattdog.data.UidResolver
 import io.github.loganrosen.wattdog.data.UsageStore
@@ -34,6 +35,7 @@ class AppContainer(context: Context) {
     val snapshots = SnapshotStore(File(context.filesDir, "snapshots"))
     val usage = UsageStore(File(context.filesDir, "usage.json"))
     val repository = BatteryRepository(access, snapshots, usage, uidResolver)
+    val experiments = ExperimentStore(File(context.filesDir, "experiment.json"))
 
     val alertStore = AlertStore(File(context.filesDir, "alerts")).also { appScope.launch { it.load() } }
     val notifier = AnomalyNotifier(context)

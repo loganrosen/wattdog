@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.loganrosen.wattdog.AppContainer
 import io.github.loganrosen.wattdog.alerts.AlertState
+import io.github.loganrosen.wattdog.batterystats.analysis.Experiment
+import io.github.loganrosen.wattdog.batterystats.analysis.Experiments
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.UsagePoint
 import io.github.loganrosen.wattdog.batterystats.model.BatteryHistory
@@ -62,6 +64,7 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     init {
         viewModelScope.launch { container.snapshots.load() }
         viewModelScope.launch { container.usage.load() }
+        viewModelScope.launch { container.experiments.load() }
         viewModelScope.launch {
             // Automatic snapshots get pruned in the background; don't keep pointing at a deleted one.
             container.snapshots.snapshots.collect { snaps ->
@@ -82,6 +85,8 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
     val pendingAction: StateFlow<SuggestedAction?> = _pendingAction.asStateFlow()
 
     val usage: StateFlow<List<UsagePoint>> = container.usage.points
+
+    val experiment: StateFlow<Experiment?> = container.experiments.current
 
     val backgroundChecksEnabled: StateFlow<Boolean> = container.backgroundChecks.enabled
     val alertState: StateFlow<AlertState> = container.alertStore.state
@@ -180,6 +185,32 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
                 load.update { it.copy(error = describe(e)) }
             }
         }
+    }
+
+    /** Starts measuring a change the user just made, against today's or the usual screen-off drain. */
+    fun startExperiment(title: String) {
+        val diagnosis = load.value.analysis?.diagnosis ?: return
+        val experiment = Experiments.start(title, diagnosis, System.currentTimeMillis())
+        if (experiment == null) {
+            load.update { it.copy(message = "There isn't enough screen-off time yet to compare against. Try again later.") }
+            return
+        }
+        viewModelScope.launch {
+            try {
+                // Records a usage point, so the first interval after the change starts now.
+                container.repository.capture()
+                container.experiments.set(experiment)
+                load.update { it.copy(message = "Tracking \"$title\". Check back after a night or a day.") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                load.update { it.copy(error = describe(e)) }
+            }
+        }
+    }
+
+    fun stopExperiment() {
+        viewModelScope.launch { container.experiments.set(null) }
     }
 
     fun deleteSnapshot(meta: SnapshotMeta) {

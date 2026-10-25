@@ -25,6 +25,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -46,8 +47,13 @@ import io.github.loganrosen.wattdog.batterystats.analysis.DozeSummary
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCost
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainCoverage
 import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
+import io.github.loganrosen.wattdog.batterystats.analysis.Experiment
+import io.github.loganrosen.wattdog.batterystats.analysis.ExperimentProgress
+import io.github.loganrosen.wattdog.batterystats.analysis.Experiments
 import io.github.loganrosen.wattdog.batterystats.analysis.Severity
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
+import io.github.loganrosen.wattdog.batterystats.analysis.UsageLog
+import io.github.loganrosen.wattdog.batterystats.analysis.UsagePoint
 import io.github.loganrosen.wattdog.batterystats.analysis.formatBatteryShare
 import io.github.loganrosen.wattdog.batterystats.analysis.formatMah
 import io.github.loganrosen.wattdog.batterystats.analysis.formatPercent
@@ -62,9 +68,20 @@ import io.github.loganrosen.wattdog.ui.isAvailable
 import io.github.loganrosen.wattdog.ui.label
 import io.github.loganrosen.wattdog.ui.opensSettings
 import io.github.loganrosen.wattdog.ui.theme.color
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
-fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, modifier: Modifier = Modifier) {
+fun DashboardScreen(
+    analysis: Analysis,
+    experiment: Experiment?,
+    usage: List<UsagePoint>,
+    onAction: (SuggestedAction) -> Unit,
+    onTrack: (String) -> Unit,
+    onStopTracking: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val report = analysis.report
     val drain = remember(report) { DrainMetrics.from(report) }
     val doze = remember(report) { DozeSummary.from(report) }
@@ -78,7 +95,8 @@ fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, mod
     ) {
         if (analysis.power?.isPowered == true) item { ChargingNote() }
         item { VerdictCard(diagnosis) }
-        item { CausesCard(diagnosis, analysis, onAction) }
+        experiment?.let { item { ExperimentCard(it, usage, onStopTracking) } }
+        item { CausesCard(diagnosis, analysis, onAction, onTrack.takeIf { experiment == null }) }
         if (diagnosis.topApps.isNotEmpty()) item { TopAppsCard(diagnosis, analysis) }
         item {
             TextButton(onClick = { showDetails = !showDetails }, Modifier.fillMaxWidth()) {
@@ -87,7 +105,19 @@ fun DashboardScreen(analysis: Analysis, onAction: (SuggestedAction) -> Unit, mod
             }
         }
         if (showDetails) {
-            if (diagnosis.observations.isNotEmpty()) item { ObservationsCard(diagnosis, analysis, onAction) }
+            if (diagnosis.observations.isNotEmpty()) {
+                item {
+                    ObservationsCard(
+                        diagnosis,
+                        analysis,
+                        onAction,
+                        onTrack.takeIf {
+                            experiment ==
+                                null
+                        },
+                    )
+                }
+            }
             item { BreakdownCard(diagnosis) }
             item { AnomaliesCard(analysis, onAction) }
             item { DrainCard(drain, analysis) }
@@ -146,6 +176,53 @@ private fun VerdictCard(diagnosis: Diagnosis) {
 }
 
 @Composable
+private fun ExperimentCard(experiment: Experiment, usage: List<UsagePoint>, onStop: () -> Unit) {
+    val progress = remember(experiment, usage) { Experiments.progress(experiment, UsageLog.intervals(usage)) }
+    val before = Diagnosis.pct(experiment.beforePercentPerHour)
+    val beforeText = if (experiment.beforeIsUsual) "your usual $before an hour" else "$before an hour on the day you changed it"
+    val since = remember(experiment) {
+        DateTimeFormatter.ofPattern("EEE HH:mm").format(Instant.ofEpochMilli(experiment.startedAtMillis).atZone(ZoneId.systemDefault()))
+    }
+    SectionCard("Tracking: ${experiment.title}") {
+        val after = progress.afterPercentPerHour?.let { Diagnosis.pct(it) }
+        when (progress.outcome) {
+            null -> {
+                Text(
+                    "Since $since: ${progress.screenOff.formatShort()} with the screen off" +
+                        (after?.let { ", losing $it an hour so far" } ?: "") +
+                        ". Wattdog needs ${Experiments.NEEDED.formatShort()} to compare with $beforeText.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LinearProgressIndicator(
+                    progress = { (progress.screenOff / Experiments.NEEDED).toFloat().coerceIn(0f, 1f) },
+                    Modifier.fillMaxWidth(),
+                )
+                EmptyNote("It measures whenever it reads battery stats: when you open it, or hourly with background checks on.")
+            }
+
+            ExperimentProgress.Outcome.BETTER -> Text(
+                "It helped. With the screen off the phone lost $after an hour, down from $beforeText " +
+                    "(${formatPercent(-progress.change(experiment.beforePercentPerHour)!!)} less).",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            ExperimentProgress.Outcome.NO_CHANGE -> Text(
+                "No clear difference: $after an hour with the screen off, against $beforeText. " +
+                    "If the change is inconvenient, it's probably not worth keeping.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            ExperimentProgress.Outcome.WORSE -> Text(
+                "Drain went up: $after an hour with the screen off, against $beforeText. " +
+                    "Something else probably changed too, like signal or how much the phone was used.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        TextButton(onClick = onStop) { Text(if (progress.outcome == null) "Stop tracking" else "Done") }
+    }
+}
+
+@Composable
 private fun PeriodTile(label: String, period: Diagnosis.Period, note: String?, modifier: Modifier = Modifier) {
     Surface(modifier, shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -160,7 +237,7 @@ private fun PeriodTile(label: String, period: Diagnosis.Period, note: String?, m
 }
 
 @Composable
-private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
     SectionCard("What to fix") {
         if (diagnosis.causes.isEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -173,7 +250,7 @@ private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (Sugg
         }
         diagnosis.causes.forEachIndexed { i, cause ->
             if (i > 0) HorizontalDivider()
-            CauseRow(cause, analysis, onAction)
+            CauseRow(cause, analysis, onAction, onTrack)
         }
     }
 }
@@ -199,17 +276,17 @@ private fun noFixNote(diagnosis: Diagnosis): String {
 }
 
 @Composable
-private fun ObservationsCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+private fun ObservationsCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
     SectionCard("Other things that used power") {
         diagnosis.observations.forEachIndexed { i, cause ->
             if (i > 0) HorizontalDivider()
-            CauseRow(cause, analysis, onAction)
+            CauseRow(cause, analysis, onAction, onTrack)
         }
     }
 }
 
 @Composable
-private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (SuggestedAction) -> Unit) {
+private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
     var expanded by rememberSaveable(cause.title) { mutableStateOf(false) }
     val action = remember(cause, analysis) { cause.action?.takeIf { it.isAvailable(analysis) } }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -236,6 +313,9 @@ private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (Sugg
                     }
                     Text(cause.actionLabel ?: it.label())
                 }
+            }
+            if (action != null && action.opensSettings() && onTrack != null) {
+                TextButton(onClick = { onTrack(cause.actionLabel ?: cause.title) }) { Text("I changed it: track the result") }
             }
             cause.details?.let { TextButton(onClick = { onAction(it) }) { Text(it.label()) } }
             if (cause.findings.isNotEmpty()) {
