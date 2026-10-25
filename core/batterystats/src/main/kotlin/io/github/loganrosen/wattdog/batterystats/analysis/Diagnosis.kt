@@ -107,7 +107,6 @@ data class Diagnosis(
         const val MIN_CAUSE_SHARE = 0.02
         private const val MIN_IDLE_SHARE = 0.03
         private val MIN_IDLE = 2.hours
-        private val MIN_JUDGEABLE_IDLE = 1.hours
 
         fun from(report: BatteryStatsReport, anomalies: List<Anomaly>, typical: Typical? = null, appName: (AppUid) -> String): Diagnosis {
             val capacity = report.estimatedCapacityMah?.takeIf { it > 0 }?.toDouble()
@@ -140,7 +139,7 @@ data class Diagnosis(
             return Period(duration, share, share * 100 / hours)
         }
 
-        private fun verdict(inUse: Period?, idle: Period?, usual: Spread?): Verdict {
+        internal fun verdict(inUse: Period?, idle: Period?, usual: Spread?): Verdict {
             val total = (inUse?.batteryShare ?: 0.0) + (idle?.batteryShare ?: 0.0)
             if (total < 0.02) {
                 return Verdict(Level.TOO_EARLY, "Not enough to go on yet", "Check back after a few hours unplugged.")
@@ -155,11 +154,11 @@ data class Diagnosis(
             }.joinToString(" and ")
             val where = "It used ${share(total)}: $went."
             val mostlyUse = (inUse?.batteryShare ?: 0.0) >= 2 * (idle?.batteryShare ?: 0.0)
-            if (idle == null || idle.duration < MIN_JUDGEABLE_IDLE) {
+            if (idle == null || idle.duration < MIN_IDLE) {
                 return Verdict(
                     Level.TOO_EARLY,
                     if (mostlyUse) "Most of it went to screen time" else "Not enough idle time yet",
-                    "$where Leave the phone unplugged with the screen off for an hour or more to check idle drain.",
+                    "$where Leave the phone unplugged with the screen off for a couple of hours to check idle drain.",
                 )
             }
             val lost = "With the screen off it lost ${pct(idle.percentPerHour)} an hour"
@@ -182,6 +181,14 @@ data class Diagnosis(
                 // A phone with AOD and weak signal can sit above the generic reference every day; once
                 // its own history says that's normal, it isn't news.
                 idle.elevatedIdle && usual == null -> Verdict(Level.FAIR, "Idle drain is a bit high", "$where $rate")
+
+                // Only a small share of the battery, so even a rate above usual isn't worth flagging.
+                usual != null && usual.isAbove(idle.percentPerHour) -> Verdict(
+                    Level.GOOD,
+                    "Nothing looks wrong",
+                    "$where Idle drain was a little above usual (${pct(idle.percentPerHour)} an hour against ${range(usual)}), " +
+                        "but too little to matter.",
+                )
 
                 else -> {
                     val normal = if (usual != null) "normal for this phone" else "normal"

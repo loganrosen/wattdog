@@ -8,6 +8,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 
 class DiagnosisTest {
     private val r = Fixtures.Real.pixelApi37ModemGlitch
@@ -51,6 +53,22 @@ class DiagnosisTest {
         assertFalse(personal.unusualIdle)
         assertEquals(Diagnosis.Level.GOOD, personal.verdict.level)
         assertTrue("normal for this phone" in personal.verdict.explanation, personal.verdict.explanation)
+    }
+
+    @Test
+    fun `idle drain above usual but too small to matter is mentioned without being flagged`() {
+        val idle = Diagnosis.Period(2.5.hours, 0.025, 1.0)
+        val verdict = Diagnosis.verdict(Diagnosis.Period(1.hours, 0.1, 10.0), idle, Spread(0.5, 0.4, 0.6))
+        assertEquals(Diagnosis.Level.GOOD, verdict.level)
+        assertTrue("a little above usual" in verdict.explanation, verdict.explanation)
+    }
+
+    @Test
+    fun `idle drain is not judged from under a couple of hours`() {
+        val idle = Diagnosis.Period(90.minutes, 0.06, 4.0)
+        val verdict = Diagnosis.verdict(Diagnosis.Period(2.hours, 0.2, 10.0), idle, null)
+        assertEquals(Diagnosis.Level.TOO_EARLY, verdict.level)
+        assertTrue("a couple of hours" in verdict.explanation, verdict.explanation)
     }
 
     @Test

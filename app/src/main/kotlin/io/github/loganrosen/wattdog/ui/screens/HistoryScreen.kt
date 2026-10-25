@@ -70,13 +70,12 @@ fun HistoryScreen(load: HistoryLoad, analysis: Analysis, usage: List<UsagePoint>
     val full = load.history
     val intervals = remember(usage) { UsageLog.intervals(usage) }
     val days = remember(intervals) { UsageLog.days(intervals, ZoneId.systemDefault()).take(14) }
-    val progress = remember(intervals) { UsageLog.progress(intervals, System.currentTimeMillis(), ZoneId.systemDefault()) }
     LazyColumn(
         modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { UsualCard(analysis.diagnosis.typical, progress) }
+        item { UsualCard(analysis.diagnosis.typical, analysis.baselineProgress) }
         if (days.isNotEmpty()) item { DaysCard(days) }
         when {
             full == null && load.error != null -> item {
@@ -109,14 +108,15 @@ private fun UsualCard(typical: Typical?, progress: Pair<Int, Int>) {
             EmptyNote(
                 "Wattdog learns this from your own use, so it can tell an unusual day from a normal one. " +
                     "It needs ${UsageLog.MIN_PERIODS} stretches of a couple of hours with the screen off, over at least " +
-                    "${UsageLog.MIN_DAYS} days. So far: $periods over $days ${if (days == 1) "day" else "days"}. " +
+                    "${UsageLog.MIN_DAYS} days. So far: $periods over $days ${if (days == 1) "day" else "days"}, " +
+                    "not counting the period Today is judging. " +
                     "Turning on background checks in Setup fills this in without opening the app.",
             )
         } else {
             StatRow("Screen off", Diagnosis.range(typical.idle).replaceFirstChar { it.uppercase() })
             typical.inUse?.let { StatRow("Using the phone", Diagnosis.range(it).replaceFirstChar { c -> c.uppercase() }) }
             EmptyNote(
-                "From ${typical.periods} stretches over ${typical.days} days in the last two weeks, not counting the one shown on Today.",
+                "From ${typical.periods} stretches over ${typical.days} days in the last two weeks, not counting the period Today is judging.",
             )
         }
     }

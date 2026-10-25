@@ -138,8 +138,8 @@ object UsageLog {
     }
 
     /** How many usable idle periods, and over how many days, the baseline has so far. */
-    fun progress(intervals: List<UsageInterval>, nowMillis: Long, zone: ZoneId): Pair<Int, Int> {
-        val idle = idleRates(blocks(intervals, nowMillis, zone) { false })
+    fun progress(intervals: List<UsageInterval>, nowMillis: Long, zone: ZoneId, exclude: (UsageInterval) -> Boolean): Pair<Int, Int> {
+        val idle = idleRates(blocks(intervals, nowMillis, zone, exclude))
         return idle.size to idle.map { it.first }.distinct().size
     }
 

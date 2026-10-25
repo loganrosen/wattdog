@@ -179,7 +179,7 @@ private fun VerdictCard(diagnosis: Diagnosis) {
 private fun ExperimentCard(experiment: Experiment, usage: List<UsagePoint>, onStop: () -> Unit) {
     val progress = remember(experiment, usage) { Experiments.progress(experiment, UsageLog.intervals(usage)) }
     val before = Diagnosis.pct(experiment.beforePercentPerHour)
-    val beforeText = if (experiment.beforeIsUsual) "your usual $before an hour" else "$before an hour on the day you changed it"
+    val beforeText = if (experiment.beforeIsUsual) "your usual $before an hour" else "the $before an hour measured before the change"
     val since = remember(experiment) {
         DateTimeFormatter.ofPattern("EEE HH:mm").format(Instant.ofEpochMilli(experiment.startedAtMillis).atZone(ZoneId.systemDefault()))
     }

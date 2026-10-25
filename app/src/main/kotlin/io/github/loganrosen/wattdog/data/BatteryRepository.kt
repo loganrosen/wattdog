@@ -7,6 +7,7 @@ import io.github.loganrosen.wattdog.batterystats.analysis.Diagnosis
 import io.github.loganrosen.wattdog.batterystats.analysis.PhantomWakelocks
 import io.github.loganrosen.wattdog.batterystats.analysis.ReportDelta
 import io.github.loganrosen.wattdog.batterystats.analysis.Typical
+import io.github.loganrosen.wattdog.batterystats.analysis.UsageInterval
 import io.github.loganrosen.wattdog.batterystats.analysis.UsageLog
 import io.github.loganrosen.wattdog.batterystats.analysis.WakelockCosts
 import io.github.loganrosen.wattdog.batterystats.model.AppUid
@@ -40,6 +41,8 @@ data class Analysis(
     val session: StatsSession,
     /** This phone's usual drain from earlier periods, if there's enough history. */
     val typical: Typical?,
+    /** Usable idle periods and days towards [typical], counted the same way. */
+    val baselineProgress: Pair<Int, Int>,
     private val labels: Map<AppUid, AppLabel>,
     private val resolver: UidResolver,
 ) {
@@ -87,13 +90,18 @@ class BatteryRepository(
         // The delta drops unchanged per-UID blocks, so take package hints from the full dump.
         val labels = uids.associateWith { resolver.resolve(it, now.report.uids[it]?.packages.orEmpty()) }
         val nowMillis = System.currentTimeMillis()
-        val typical = UsageLog.typical(UsageLog.intervals(usage.points.value), nowMillis, ZoneId.systemDefault()) {
-            when (baseline) {
-                Baseline.SinceCharge -> it.session == now.report.startClockTime
-                is Baseline.Snapshot -> it.endMillis > baseline.meta.capturedAtMillis
-            }
+        val intervals = UsageLog.intervals(usage.points.value)
+        val zone = ZoneId.systemDefault()
+        val exclude: (UsageInterval) -> Boolean = when (baseline) {
+            // Stats only reset on a near-full charge, so with a charge limit one session can run for
+            // days; keeping all of it out would mean never having a baseline.
+            Baseline.SinceCharge -> { i -> i.session == now.report.startClockTime && nowMillis - i.endMillis < RECENT_MS }
+
+            is Baseline.Snapshot -> { i -> i.endMillis > baseline.meta.capturedAtMillis }
         }
-        Analysis(baseline, report, now.power, anomalies, nowMillis, StatsSession.of(now.report), typical, labels, resolver)
+        val typical = UsageLog.typical(intervals, nowMillis, zone, exclude)
+        val progress = UsageLog.progress(intervals, nowMillis, zone, exclude)
+        Analysis(baseline, report, now.power, anomalies, nowMillis, StatsSession.of(now.report), typical, progress, labels, resolver)
     }
 
     /** Streams `--history`; it can be tens of megabytes, so it's fetched only when the History tab asks. */
@@ -102,6 +110,10 @@ class BatteryRepository(
     suspend fun takeSnapshot(label: String): SnapshotMeta {
         val now = capture()
         return snapshots.save(label, now.raw, now.report, now.power?.batteryLevel)
+    }
+
+    private companion object {
+        const val RECENT_MS = 24 * 3_600_000L
     }
 
     suspend fun capture(): Capture = coroutineScope {
