@@ -6,13 +6,13 @@ Think of it as a modern BetterBatteryStats for Android 14+.
 
 ## What it shows
 
-- **Dashboard**: discharge since unplugged (or since a snapshot), screen-on vs screen-off mAh/h, how long the CPU stayed awake with the screen off, top apps and power components, Doze and AOD, plus an anomalies card. Problems still active right now (from `dumpsys power`) get an "active now" badge.
-- **History**: a timeline from `dumpsys batterystats --history` with the battery level, charging, and lanes for screen, AOD, awake, wakelocks, Doze, cellular and Wi-Fi radio, signal, GPS, BLE scans, and media. Drag across it to see what was running at any moment. Below that: drain rates and the foreground apps, wakelocks, and jobs from the history for the same window.
-- **Wakelocks**: app partial wakelocks (filterable by audio/jobs/sync/alarms/location, held locks marked), kernel wakelocks, and wakeup reasons.
-- **Radios**: cellular drain split into app traffic vs standby, cost per MB, signal-strength and network-type breakdowns, which apps keep the modem awake, plus Wi-Fi, Bluetooth scanning, and GPS.
+- **Today**: a plain-language verdict on where the battery went, split into screen time and screen-off drain, and whether the idle rate is normal. It recommends a fix only when one app or setting clearly stands out and there's something to change, then lists the apps that used the most. **Technical details** at the bottom has the component breakdown, Doze, AOD, wake sources, and the full anomaly list. Problems still active right now (from `dumpsys power`) get an "active now" badge.
+- **Guided tests**: when a fix opens a system setting, tap **I changed it: track the result** after changing it. Wattdog compares screen-off drain over the next six hours or more with the rate from before and reports whether it got better, worse, or didn't change.
+- **Trends**: what's normal for your phone, learned from your own use. After five stretches of a couple of hours with the screen off, over at least three days, verdicts compare idle drain with your usual range instead of a generic figure. Below that are a by-day summary and a timeline from `dumpsys batterystats --history` with the battery level, charging, and lanes for screen, AOD, awake, wakelocks, Doze, cellular and Wi-Fi radio, signal, GPS, BLE scans, and media. Drag across it to see what was running at any moment.
 - **Apps**: per-UID power estimates with foreground/background split, jobs, wakeup alarms, wakelocks, and network use. UIDs are resolved to app names, including shared and system UIDs.
+- **Diagnostics**: app partial wakelocks (filterable by audio/jobs/sync/alarms/location, held locks marked, stuck timers flagged as phantom), kernel wakelocks, and wakeup reasons, plus radios: cellular drain split into app traffic vs standby, cost per MB, signal-strength and network-type breakdowns, which apps keep the modem awake, and Wi-Fi, Bluetooth scanning, and GPS.
 - **Time windows**: the title menu switches between since unplugged, recent windows (last hour, last 3 or 6 hours, and overnight in the morning) built from automatic snapshots, and your own marks. Use **Mark now…** before a test, like switching to LTE, then pick the mark later to see only what happened since. Marks from before a charge are greyed out because the stats were reset.
-- **Background checks** (off by default, in Settings): every hour on battery Wattdog saves an automatic snapshot (kept for two days, and dropped once the stats reset), diffs the stats against one from about three hours earlier, and notifies about new or worsening findings (warnings and above) from that window, with buttons for the relevant screen or system setting. The same finding won't notify again for 12 hours unless it gets worse. If Shizuku stops (for example after a reboot) and checks keep failing, you get one quiet notice.
+- **Background checks** (off by default, in Settings): every hour on battery Wattdog saves an automatic snapshot (kept for two days, and dropped once the stats reset), diffs the stats against one from about three hours earlier, and notifies about new or worsening findings (warnings and above) from that window, with buttons for the relevant screen or system setting. Each check also adds to the usage log behind "what's normal", so the baseline fills in without opening the app. The same finding won't notify again for 12 hours unless it gets worse. If Shizuku stops (for example after a reboot) and checks keep failing, you get one quiet notice.
 
 ## Access
 
@@ -32,7 +32,7 @@ Battery stats only accumulate while on battery. If you charge to full and then u
 
 ## Privacy
 
-Dumps never leave the device. Snapshots are stored gzipped in app-private storage and are excluded from backup. They contain package names, account-related wakelock tags, and device identifiers, so be careful about sharing them.
+Dumps never leave the device. Snapshots are stored gzipped in app-private storage and are excluded from backup. The usage log behind the baseline holds only drain totals and is kept for 90 days. They contain package names, account-related wakelock tags, and device identifiers, so be careful about sharing them.
 
 ## Project layout
 
