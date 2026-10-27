@@ -95,6 +95,8 @@ data class WifiStats(
     val drainMah: Double? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
+    /** On-battery time Wi-Fi was connected to a network (supplicant "completed"). */
+    val connected: Duration = Duration.ZERO,
 ) {
     val totalBytes: Long get() = rxBytes + txBytes
 }

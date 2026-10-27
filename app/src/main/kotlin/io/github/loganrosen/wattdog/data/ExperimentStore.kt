@@ -35,12 +35,13 @@ class ExperimentStore(private val file: File) {
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { mutex.withLock { block() } }
 
+    // Older files also carry the before rate the first version compared against; it's ignored now.
     @Serializable
-    private data class Stored(val title: String, val startedAt: Long, val before: Double, val beforeIsUsual: Boolean) {
-        fun toExperiment() = Experiment(title, startedAt, before, beforeIsUsual)
+    private data class Stored(val title: String, val startedAt: Long, val matchAod: Boolean = true) {
+        fun toExperiment() = Experiment(title, startedAt, matchAod)
 
         companion object {
-            fun of(e: Experiment) = Stored(e.title, e.startedAtMillis, e.beforePercentPerHour, e.beforeIsUsual)
+            fun of(e: Experiment) = Stored(e.title, e.startedAtMillis, e.matchAod)
         }
     }
 }

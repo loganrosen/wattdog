@@ -117,6 +117,7 @@ object BatteryStatsParser {
         var powerSub = PowerSub.GLOBAL_ALL
         var cellular = CellularStats()
         var wifi = WifiStats()
+        var inSupplicantStates = false
         val rat = linkedMapOf<String, Duration>()
         val signal = linkedMapOf<String, Duration>()
         var discharge = Discharge()
@@ -194,7 +195,11 @@ object BatteryStatsParser {
 
                 Section.CELLULAR -> parseCellular(indent, content)
 
-                Section.WIFI -> if (indent <= 5) parseWifi(content)
+                Section.WIFI -> if (indent <= 5) {
+                    parseWifi(content)
+                } else if (inSupplicantStates && content.startsWith("completed ")) {
+                    wifi = wifi.copy(connected = durationBeforeParen(content.removePrefix("completed ")))
+                }
 
                 Section.GPS -> if (content.startsWith("GPS Battery Drain:")) {
                     report = report.copy(gpsDrainMah = Units.mah(content.substringAfter(":")))
@@ -317,6 +322,7 @@ object BatteryStatsParser {
         private fun parseWifi(content: String) {
             val key = content.substringBefore(":")
             val value = content.substringAfter(":", "").trim()
+            inSupplicantStates = key == "Wifi supplicant states"
             wifi = when (key) {
                 "Wifi kernel active time" -> wifi.copy(kernelActive = durationBeforeParen(value))
                 "WiFi Scan time" -> wifi.copy(scan = durationBeforeParen(value))

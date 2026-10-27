@@ -31,6 +31,7 @@ class RealPixelApi37Test {
         assertEquals(4.hours + 19.minutes + 0.seconds + 804.milliseconds, r.screenOff.realtime)
         assertEquals(52.minutes + 20.seconds + 986.milliseconds, r.screenDoze)
         assertEquals(82, r.screenOnCount)
+        assertEquals(3.hours + 5.minutes + 46.seconds + 366.milliseconds, r.wifi.connected)
         with(r.discharge) {
             assertEquals(2705, totalMah)
             assertEquals(1950, screenOnMah)

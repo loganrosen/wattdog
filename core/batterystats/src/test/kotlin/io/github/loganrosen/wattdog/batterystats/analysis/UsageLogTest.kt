@@ -102,4 +102,61 @@ class UsageLogTest {
         assertEquals(0.30, days[0].screenOnShare, 1e-9)
         assertEquals(0.6, days[0].idlePercentPerHour!!, 1e-9)
     }
+
+    /** One quiet hour starting [h] hours after day0: screen off, on Wi-Fi unless [wifi] is false. */
+    private fun quietHour(h: Int, wifi: Boolean = true, aod: Boolean = true, onBatteryMin: Int = 60, wakes: Int = 0) = UsageInterval(
+        session = "s",
+        startMillis = day0 + h * hour,
+        endMillis = day0 + (h + 1) * hour,
+        screenOn = 0.hours,
+        screenOnShare = 0.0,
+        screenOff = onBatteryMin.minutes,
+        screenOffShare = 0.01,
+        onBattery = onBatteryMin.minutes,
+        screenDoze = if (aod) onBatteryMin.minutes else 0.minutes,
+        wifiConnected = if (wifi) onBatteryMin.minutes else 0.minutes,
+        screenWakes = wakes,
+    )
+
+    @Test
+    fun `intervals carry the condition counters`() {
+        val a = UsagePoint(day0, "s", 0, 0, 0, 0, 0, 5000, 0, 0, 0, 3)
+        val b = UsagePoint(day0 + 2 * hour, "s", 2 * hour, 0, 0, 2 * hour, 50, 5000, hour, 20, 2 * hour, 4)
+        val i = UsageLog.intervals(listOf(a, b)).single()
+        assertEquals(2.hours, i.onBattery)
+        assertEquals(1.hours, i.screenDoze)
+        assertEquals(2.hours, i.wifiConnected)
+        assertEquals(1, i.screenWakes)
+        assertNull(UsageLog.intervals(listOf(a.copy(wifiConnectedMs = null), b)).single().wifiConnected)
+    }
+
+    @Test
+    fun `back-to-back quiet hours join into one stretch`() {
+        val s = UsageLog.quietStretches((0 until 7).map { quietHour(it) }).single()
+        assertEquals(7.hours, s.screenOff)
+        assertEquals(1.0, s.percentPerHour, 1e-9)
+        assertEquals(Network.WIFI, s.network)
+        assertTrue(s.aod)
+    }
+
+    @Test
+    fun `charging, a network change or too short a run breaks a stretch`() {
+        assertTrue(UsageLog.quietStretches((0 until 5).map { quietHour(it) }).isEmpty())
+        val charged = (0 until 10).map { if (it == 4) quietHour(it, onBatteryMin = 30) else quietHour(it) }
+        assertTrue(UsageLog.quietStretches(charged).isEmpty())
+        val switched = (0 until 10).map { quietHour(it, wifi = it < 4) }
+        assertEquals(listOf(Network.MOBILE), UsageLog.quietStretches(switched).map { it.network })
+    }
+
+    @Test
+    fun `old points without the counters never make a stretch`() {
+        assertTrue(UsageLog.quietStretches((0 until 8).map { quietHour(it).copy(wifiConnected = null) }).isEmpty())
+        assertTrue(UsageLog.quietStretches((0 until 8).map { quietHour(it).copy(screenWakes = null) }).isEmpty())
+    }
+
+    @Test
+    fun `a stretch with the always-on display on for only part of it is left out`() {
+        assertTrue(UsageLog.quietStretches((0 until 8).map { quietHour(it, aod = it < 4) }).isEmpty())
+        assertFalse(UsageLog.quietStretches((0 until 8).map { quietHour(it, aod = false) }).single().aod)
+    }
 }

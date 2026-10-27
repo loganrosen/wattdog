@@ -65,8 +65,10 @@ class UsageStore(private val file: File) {
         val capacity: Int,
         val dozeMs: Long? = null,
         val dozeMah: Int? = null,
+        val wifiMs: Long? = null,
+        val screenOns: Int? = null,
     ) {
-        fun toPoint() = UsagePoint(at, session, battery, onMs, onMah, offMs, offMah, capacity, dozeMs, dozeMah)
+        fun toPoint() = UsagePoint(at, session, battery, onMs, onMah, offMs, offMah, capacity, dozeMs, dozeMah, wifiMs, screenOns)
 
         companion object {
             fun of(p: UsagePoint) = Stored(
@@ -80,6 +82,8 @@ class UsageStore(private val file: File) {
                 p.capacityMah,
                 p.screenDozeMs,
                 p.screenDozeMah,
+                p.wifiConnectedMs,
+                p.screenOnCount,
             )
         }
     }

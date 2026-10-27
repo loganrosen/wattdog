@@ -28,6 +28,9 @@ data class UsagePoint(
     /** Always-on display time and charge, part of the screen-off figures. Null in points logged before these were kept. */
     val screenDozeMs: Long? = null,
     val screenDozeMah: Int? = null,
+    /** Wi-Fi connected time and how many times the screen came on. Null in points logged before these were kept. */
+    val wifiConnectedMs: Long? = null,
+    val screenOnCount: Int? = null,
 ) {
     companion object {
         fun of(report: BatteryStatsReport, capturedAtMillis: Long): UsagePoint? {
@@ -44,6 +47,8 @@ data class UsagePoint(
                 capacityMah = capacity,
                 screenDozeMs = report.screenDoze.inWholeMilliseconds,
                 screenDozeMah = report.discharge.screenDozeMah,
+                wifiConnectedMs = report.wifi.connected.inWholeMilliseconds,
+                screenOnCount = report.screenOnCount,
             )
         }
     }
@@ -57,6 +62,26 @@ data class UsageInterval(
     val screenOnShare: Double,
     val screenOff: Duration,
     val screenOffShare: Double,
+    val onBattery: Duration = screenOn + screenOff,
+    val screenDoze: Duration? = null,
+    val wifiConnected: Duration? = null,
+    val screenWakes: Int? = null,
+)
+
+/** Which network the phone was on, for comparing like with like. */
+enum class Network { WIFI, MOBILE }
+
+/**
+ * A long, unplugged, screen-off stretch on one network, like a night on the nightstand. These are
+ * the only periods similar enough to compare from one day to the next.
+ */
+data class QuietStretch(
+    val startMillis: Long,
+    val endMillis: Long,
+    val screenOff: Duration,
+    val percentPerHour: Double,
+    val network: Network,
+    val aod: Boolean,
 )
 
 data class DayUsage(
@@ -89,6 +114,13 @@ object UsageLog {
     private val MIN_BLOCK_USE = 30.minutes
     const val MIN_PERIODS = 5
     const val MIN_DAYS = 3
+    val QUIET_MIN = 6.hours
+    private const val MOSTLY = 0.9
+    private const val MAX_WAKES_PER_HOUR = 0.5
+
+    // The always-on display goes dark face down or in a pocket, so "on" can't require all of the time.
+    private const val AOD_ON = 0.75
+    private const val AOD_OFF = 0.1
 
     fun intervals(points: List<UsagePoint>): List<UsageInterval> = points.sortedBy { it.capturedAtMillis }
         .zipWithNext()
@@ -107,8 +139,70 @@ object UsageLog {
                 screenOnShare = onMah.toDouble() / b.capacityMah,
                 screenOff = off.milliseconds,
                 screenOffShare = offMah.toDouble() / b.capacityMah,
+                onBattery = (b.onBatteryMs - a.onBatteryMs).milliseconds,
+                screenDoze = delta(a.screenDozeMs, b.screenDozeMs)?.milliseconds,
+                wifiConnected = delta(a.wifiConnectedMs, b.wifiConnectedMs)?.milliseconds,
+                screenWakes = delta(a.screenOnCount?.toLong(), b.screenOnCount?.toLong())?.toInt(),
             )
         }
+
+    private fun delta(a: Long?, b: Long?) = if (a != null && b != null && b >= a) b - a else null
+
+    /**
+     * Joins back-to-back intervals into [QuietStretch]es: at least [QUIET_MIN] screen-off, unplugged,
+     * rarely woken, and on one network with the always-on display either mostly on or mostly off.
+     * Mixed intervals can't be split after the fact, so they break a stretch rather than join it.
+     */
+    fun quietStretches(intervals: List<UsageInterval>): List<QuietStretch> {
+        val stretches = mutableListOf<QuietStretch>()
+        var run = mutableListOf<UsageInterval>()
+        fun flush() {
+            quiet(run)?.let { stretches += it }
+            run = mutableListOf()
+        }
+        for (i in intervals.sortedBy { it.startMillis }) {
+            val network = network(i)
+            val last = run.lastOrNull()
+            if (network == null || !unplugged(i) || i.screenOn > i.onBattery * 0.1) {
+                flush()
+                continue
+            }
+            if (last != null && (last.endMillis != i.startMillis || last.session != i.session || network(last) != network)) flush()
+            run += i
+        }
+        flush()
+        return stretches
+    }
+
+    private fun network(i: UsageInterval): Network? {
+        val share = i.wifiConnected?.let { it / i.onBattery } ?: return null
+        return when {
+            share >= MOSTLY -> Network.WIFI
+            share <= 1 - MOSTLY -> Network.MOBILE
+            else -> null
+        }
+    }
+
+    // Charging stops the on-battery clock, so a gap between it and the wall clock means a charger.
+    private fun unplugged(i: UsageInterval) = i.onBattery.inWholeMilliseconds >= (i.endMillis - i.startMillis) * MOSTLY
+
+    private fun quiet(run: List<UsageInterval>): QuietStretch? {
+        val off = run.fold(Duration.ZERO) { acc, i -> acc + i.screenOff }
+        val on = run.fold(Duration.ZERO) { acc, i -> acc + i.screenOn }
+        val doze = run.fold(Duration.ZERO) { acc, i -> acc + (i.screenDoze ?: return null) }
+        val wakes = run.sumOf { it.screenWakes ?: return null }
+        if (off < QUIET_MIN || on > (on + off) * 0.05 || wakes > off.toDouble(DurationUnit.HOURS) * MAX_WAKES_PER_HOUR) return null
+        val aodShare = doze / off
+        if (aodShare > AOD_OFF && aodShare < AOD_ON) return null
+        return QuietStretch(
+            startMillis = run.first().startMillis,
+            endMillis = run.last().endMillis,
+            screenOff = off,
+            percentPerHour = rate(run.sumOf { it.screenOffShare }, off)!!,
+            network = network(run.first())!!,
+            aod = aodShare >= AOD_ON,
+        )
+    }
 
     /** Newest first. Each interval counts towards the day it ended on. */
     fun days(intervals: List<UsageInterval>, zone: ZoneId): List<DayUsage> = intervals

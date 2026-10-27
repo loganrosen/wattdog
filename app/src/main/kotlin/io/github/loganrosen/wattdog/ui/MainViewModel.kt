@@ -187,20 +187,15 @@ class MainViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Starts measuring a change the user just made, against today's or the usual screen-off drain. */
-    fun startExperiment(title: String) {
-        val diagnosis = load.value.analysis?.diagnosis ?: return
-        val experiment = Experiments.start(title, diagnosis, System.currentTimeMillis())
-        if (experiment == null) {
-            load.update { it.copy(message = "There isn't enough screen-off time yet to compare against. Try again later.") }
-            return
-        }
+    /** Starts tracking a change the user just made, against similar quiet stretches from before it. */
+    fun startExperiment(title: String, action: SuggestedAction) {
+        val experiment = Experiments.start(title, action, System.currentTimeMillis())
         viewModelScope.launch {
             try {
                 // Records a usage point, so the first interval after the change starts now.
                 container.repository.capture()
                 container.experiments.set(experiment)
-                load.update { it.copy(message = "Tracking \"$title\". Check back after a night or a day.") }
+                load.update { it.copy(message = "Tracking \"$title\". Check back after a night.") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

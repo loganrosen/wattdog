@@ -25,7 +25,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -50,6 +49,8 @@ import io.github.loganrosen.wattdog.batterystats.analysis.DrainMetrics
 import io.github.loganrosen.wattdog.batterystats.analysis.Experiment
 import io.github.loganrosen.wattdog.batterystats.analysis.ExperimentProgress
 import io.github.loganrosen.wattdog.batterystats.analysis.Experiments
+import io.github.loganrosen.wattdog.batterystats.analysis.Network
+import io.github.loganrosen.wattdog.batterystats.analysis.QuietStretch
 import io.github.loganrosen.wattdog.batterystats.analysis.Severity
 import io.github.loganrosen.wattdog.batterystats.analysis.SuggestedAction
 import io.github.loganrosen.wattdog.batterystats.analysis.UsageLog
@@ -78,7 +79,7 @@ fun DashboardScreen(
     experiment: Experiment?,
     usage: List<UsagePoint>,
     onAction: (SuggestedAction) -> Unit,
-    onTrack: (String) -> Unit,
+    onTrack: (String, SuggestedAction) -> Unit,
     onStopTracking: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -178,48 +179,55 @@ private fun VerdictCard(diagnosis: Diagnosis) {
 @Composable
 private fun ExperimentCard(experiment: Experiment, usage: List<UsagePoint>, onStop: () -> Unit) {
     val progress = remember(experiment, usage) { Experiments.progress(experiment, UsageLog.intervals(usage)) }
-    val before = Diagnosis.pct(experiment.beforePercentPerHour)
-    val beforeText = if (experiment.beforeIsUsual) "your usual $before an hour" else "the $before an hour measured before the change"
     val since = remember(experiment) {
         DateTimeFormatter.ofPattern("EEE HH:mm").format(Instant.ofEpochMilli(experiment.startedAtMillis).atZone(ZoneId.systemDefault()))
     }
     SectionCard("Tracking: ${experiment.title}") {
         val after = progress.afterPercentPerHour?.let { Diagnosis.pct(it) }
-        when (progress.outcome) {
-            null -> {
-                Text(
-                    "Since $since: ${progress.screenOff.formatShort()} with the screen off" +
-                        (after?.let { ", losing $it an hour so far" } ?: "") +
-                        ". Wattdog needs ${Experiments.NEEDED.formatShort()} to compare with $beforeText.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                LinearProgressIndicator(
-                    progress = { (progress.screenOff / Experiments.NEEDED).toFloat().coerceIn(0f, 1f) },
-                    Modifier.fillMaxWidth(),
-                )
-                EmptyNote("It measures whenever it reads battery stats: when you open it, or hourly with background checks on.")
-            }
+        val usual = progress.earlierPercentPerHour?.let { Diagnosis.pct(it) }
+        val kind = progress.compared.firstOrNull()?.let { quietKind(it, experiment.matchAod) }
+        val earlier = progress.earlier.size
+        val text = when (progress.outcome) {
+            null ->
+                "Since $since. Wattdog compares quiet stretches: 6 hours or more unplugged with the screen off, " +
+                    "on one network, like a night on the nightstand. None since the change yet. " +
+                    if (progress.before == 0) {
+                        "It hasn't seen one from before the change either, so it may only be able to show the drain, not compare it."
+                    } else {
+                        "It found ${stretches(progress.before)} in the two weeks before."
+                    }
 
-            ExperimentProgress.Outcome.BETTER -> Text(
-                "It helped. With the screen off the phone lost $after an hour, down from $beforeText " +
-                    "(${formatPercent(-progress.change(experiment.beforePercentPerHour)!!)} less).",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            ExperimentProgress.Outcome.NOTHING_TO_COMPARE ->
+                "Since the change, quiet stretches $kind lost $after an hour. Wattdog needs ${Experiments.MIN_EARLIER} similar ones " +
+                    "from before the change to compare with and has $earlier, so it can't say whether the change made a difference."
 
-            ExperimentProgress.Outcome.NO_CHANGE -> Text(
-                "No clear difference: $after an hour with the screen off, against $beforeText. " +
-                    "If the change is inconvenient, it's probably not worth keeping.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            ExperimentProgress.Outcome.LOWER ->
+                "Quiet stretches $kind lost $after an hour since the change, lower than all ${stretches(earlier)} like them " +
+                    "before it (usually $usual). That fits the change helping, but better signal or less background activity " +
+                    "would look the same."
 
-            ExperimentProgress.Outcome.WORSE -> Text(
-                "Drain went up: $after an hour with the screen off, against $beforeText. " +
-                    "Something else probably changed too, like signal or how much the phone was used.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            ExperimentProgress.Outcome.SIMILAR ->
+                "Quiet stretches $kind lost $after an hour since the change, against $usual on ${stretches(earlier)} like them " +
+                    "before it. No clear difference so far."
+
+            ExperimentProgress.Outcome.HIGHER ->
+                "Quiet stretches $kind lost $after an hour since the change, higher than all ${stretches(earlier)} like them " +
+                    "before it (usually $usual). Something else may have changed too, like signal or an app update."
         }
-        TextButton(onClick = onStop) { Text(if (progress.outcome == null) "Stop tracking" else "Done") }
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+        if (progress.outcome == null) {
+            EmptyNote("It measures whenever it reads battery stats: when you open it, or hourly with background checks on.")
+        }
+        val done = progress.outcome != null && progress.outcome != ExperimentProgress.Outcome.NOTHING_TO_COMPARE
+        TextButton(onClick = onStop) { Text(if (done) "Done" else "Stop tracking") }
     }
+}
+
+private fun stretches(n: Int) = if (n == 1) "1 stretch" else "$n stretches"
+
+private fun quietKind(s: QuietStretch, matchAod: Boolean): String {
+    val network = if (s.network == Network.WIFI) "on Wi-Fi" else "on mobile data"
+    return if (matchAod) "$network with the always-on display ${if (s.aod) "on" else "off"}" else network
 }
 
 @Composable
@@ -237,7 +245,12 @@ private fun PeriodTile(label: String, period: Diagnosis.Period, note: String?, m
 }
 
 @Composable
-private fun CausesCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
+private fun CausesCard(
+    diagnosis: Diagnosis,
+    analysis: Analysis,
+    onAction: (SuggestedAction) -> Unit,
+    onTrack: ((String, SuggestedAction) -> Unit)?,
+) {
     SectionCard("What to fix") {
         if (diagnosis.causes.isEmpty()) {
             val unexplained = diagnosis.idle?.elevatedIdle == true && diagnosis.verdict.level != Diagnosis.Level.TOO_EARLY
@@ -272,7 +285,12 @@ private fun noFixNote(diagnosis: Diagnosis, unexplained: Boolean): String = when
 }
 
 @Composable
-private fun ObservationsCard(diagnosis: Diagnosis, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
+private fun ObservationsCard(
+    diagnosis: Diagnosis,
+    analysis: Analysis,
+    onAction: (SuggestedAction) -> Unit,
+    onTrack: ((String, SuggestedAction) -> Unit)?,
+) {
     SectionCard("Other things that used power") {
         diagnosis.observations.forEachIndexed { i, cause ->
             if (i > 0) HorizontalDivider()
@@ -282,7 +300,12 @@ private fun ObservationsCard(diagnosis: Diagnosis, analysis: Analysis, onAction:
 }
 
 @Composable
-private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (SuggestedAction) -> Unit, onTrack: ((String) -> Unit)?) {
+private fun CauseRow(
+    cause: Diagnosis.Cause,
+    analysis: Analysis,
+    onAction: (SuggestedAction) -> Unit,
+    onTrack: ((String, SuggestedAction) -> Unit)?,
+) {
     var expanded by rememberSaveable(cause.title) { mutableStateOf(false) }
     val action = remember(cause, analysis) { cause.action?.takeIf { it.isAvailable(analysis) } }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -311,7 +334,7 @@ private fun CauseRow(cause: Diagnosis.Cause, analysis: Analysis, onAction: (Sugg
                 }
             }
             if (action != null && action.opensSettings() && onTrack != null) {
-                TextButton(onClick = { onTrack(cause.actionLabel ?: cause.title) }) { Text("I changed it: track the result") }
+                TextButton(onClick = { onTrack(cause.actionLabel ?: cause.title, action) }) { Text("I changed it: track the result") }
             }
             cause.details?.let { TextButton(onClick = { onAction(it) }) { Text(it.label()) } }
             if (cause.findings.isNotEmpty()) {
